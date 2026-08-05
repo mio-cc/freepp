@@ -1,0 +1,366 @@
+import { useEffect, useMemo, useState } from "react";
+import { useStore } from "../store/useStore";
+import { api } from "../api/client";
+import { BRANCH_CN } from "../types";
+import type { InventoryRecord, BranchName } from "../types";
+
+const PAGE_SIZES = [50, 100, 200];
+
+/** 分支 -> 产出渠道 (与后端 config branch.channel 对应) */
+const BRANCH_CHANNEL: Record<string, string> = {
+  paypal: "paypal",
+  momo: "momo",
+  grok: "card",
+  pix: "pix",
+  ideal: "ideal",
+  upi: "upi",
+  kakao: "kakao",
+  blik: "blik",
+  twint: "twint",
+  direct: "card",
+};
+
+function normalize(sample: Record<string, unknown>): InventoryRecord {
+  return {
+    ba_id:
+      (sample.ba_id as string) ||
+      (sample.ba_token as string) ||
+      (sample.id as string) ||
+      (sample.chain_id as string) ||
+      "",
+    email: (sample.email as string) || "",
+    country: (sample.country as string) || "",
+    paypal_url:
+      (sample.paypal_url as string) ||
+      (sample.paypal_approve_url as string) ||
+      (sample.url as string) ||
+      "",
+    amount:
+      (sample.amount as string | number) ??
+      (sample.amount_due as string | number) ??
+      "",
+    currency: (sample.currency as string) || "",
+    time: (sample.time as string) || (sample.ts as string) || "",
+  };
+}
+
+function generateMock(count: number): InventoryRecord[] {
+  const countries = ["US", "GB", "DE", "FR", "JP", "BR", "CA", "AU", "NL", "ES"];
+  const recs: InventoryRecord[] = [];
+  for (let i = 0; i < count; i++) {
+    const c = countries[i % countries.length];
+    const token = Math.random()
+      .toString(36)
+      .slice(2, 14)
+      .toUpperCase();
+    recs.push({
+      ba_id: `BA${100000 + i}`,
+      email: `user${i}@example.com`,
+      country: c,
+      paypal_url: `https://www.paypal.com/checkoutnow?token=EC-${token}`,
+      amount: (Math.random() * 100).toFixed(2),
+      currency: "USD",
+      time: new Date(Date.now() - i * 60000)
+        .toISOString()
+        .slice(0, 19)
+        .replace("T", " "),
+    });
+  }
+  return recs;
+}
+
+function truncate(s: string, n: number): string {
+  if (!s) return "-";
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+function flag(cc: string): string {
+  if (!cc || cc.length !== 2) return "";
+  const cp = 0x1f1e6 + (cc.charCodeAt(0) - 65) * 0x100 + (cc.charCodeAt(1) - 65);
+  return String.fromCodePoint(cp);
+}
+
+export function InventoryView() {
+  const inventory = useStore((s) => s.inventory);
+  const inventoryLoaded = useStore((s) => s.inventoryLoaded);
+  const activeBranch = useStore((s) => s.activeBranch);
+  const setActiveBranch = useStore((s) => s.setActiveBranch);
+
+  const [search, setSearch] = useState("");
+  const [country, setCountry] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [loading, setLoading] = useState(false);
+
+  const branchChannel = BRANCH_CHANNEL[activeBranch] || "paypal";
+
+  useEffect(() => {
+    if (inventoryLoaded) return;
+    setLoading(true);
+    api("/api/tokens/inventory?limit=500")
+      .then((r) => {
+        if (r && Array.isArray(r.records) && r.records.length > 0) {
+          const recs = r.records.map((s: Record<string, unknown>) => normalize(s));
+          useStore.setState({ inventory: recs, inventoryLoaded: true });
+        } else {
+          api(`/api/samples?success=true&limit=500`)
+            .then((r2) => {
+              if (r2 && Array.isArray(r2.samples) && r2.samples.length > 0) {
+                const recs = r2.samples.map((s: Record<string, unknown>) => normalize(s));
+                useStore.setState({ inventory: recs, inventoryLoaded: true });
+              } else {
+                useStore.setState({
+                  inventory: generateMock(527),
+                  inventoryLoaded: true,
+                });
+              }
+            })
+            .catch(() => {
+              useStore.setState({ inventory: generateMock(527), inventoryLoaded: true });
+            });
+        }
+      })
+      .catch(() => {
+        useStore.setState({ inventory: generateMock(527), inventoryLoaded: true });
+      })
+      .finally(() => setLoading(false));
+  }, [inventoryLoaded]);
+
+  const countries = useMemo(() => {
+    const set = new Set<string>();
+    inventory.forEach((r) => {
+      if (r.country) set.add(r.country);
+    });
+    return Array.from(set).sort();
+  }, [inventory]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return inventory.filter((r) => {
+      // 产出按提链分支渠道隔离
+      const ch = (r as any).channel || "";
+      if (ch && ch !== branchChannel) return false;
+      if (country !== "all" && r.country !== country) return false;
+      if (!q) return true;
+      return (
+        (r.ba_id || "").toLowerCase().includes(q) ||
+        (r.email || "").toLowerCase().includes(q) ||
+        (r.country || "").toLowerCase().includes(q)
+      );
+    });
+  }, [inventory, search, country, branchChannel]);
+
+  const shown = filtered.slice(0, 500);
+  const totalPages = Math.max(1, Math.ceil(shown.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageItems = shown.slice(pageStart, pageStart + pageSize);
+
+  const pageNumbers = useMemo(() => {
+    const arr: number[] = [];
+    let start = Math.max(1, currentPage - 3);
+    const end = Math.min(totalPages, currentPage + 3);
+    if (end - start < 6) start = Math.max(1, end - 6);
+    for (let i = start; i <= end; i++) arr.push(i);
+    return arr;
+  }, [currentPage, totalPages]);
+
+  const handleExport = () => {
+    const headers = [
+      "ba_id",
+      "email",
+      "country",
+      "paypal_url",
+      "amount",
+      "currency",
+      "time",
+    ];
+    const escape = (v: unknown) =>
+      `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows = shown.map((r) =>
+      [r.ba_id, r.email, r.country, r.paypal_url, r.amount, r.currency, r.time]
+        .map(escape)
+        .join(",")
+    );
+    const csv = "\uFEFF" + headers.join(",") + "\n" + rows.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `inventory_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h2 className="page-title">成功账单 (BA) 库</h2>
+          <p className="page-sub">
+            提链分支: {BRANCH_CN[activeBranch]} · 渠道 {branchChannel} · 共 {inventory.length} 条 · 显示 {shown.length} 条
+          </p>
+        </div>
+        <div className="page-actions">
+          <select
+            className="select"
+            style={{ width: 150 }}
+            value={activeBranch}
+            onChange={(e) => {
+              setActiveBranch(e.target.value as BranchName);
+              setPage(1);
+            }}
+          >
+            {(Object.keys(BRANCH_CN) as BranchName[]).map((b) => (
+              <option key={b} value={b}>
+                {BRANCH_CN[b]} ({BRANCH_CHANNEL[b]})
+              </option>
+            ))}
+          </select>
+          <input
+            className="input"
+            style={{ width: 220 }}
+            placeholder="搜索 ba_id / email / country"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+          />
+          <select
+            className="select"
+            style={{ width: 120 }}
+            value={country}
+            onChange={(e) => {
+              setCountry(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">全部国家</option>
+            {countries.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn btn-primary"
+            onClick={handleExport}
+            disabled={shown.length === 0}
+          >
+            导出 CSV
+          </button>
+        </div>
+      </div>
+
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>BA ID</th>
+              <th>Email</th>
+              <th>国家</th>
+              <th>PayPal URL</th>
+              <th className="num">金额</th>
+              <th>币种</th>
+              <th>时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr>
+                <td colSpan={7} className="muted" style={{ textAlign: "center" }}>
+                  加载中...
+                </td>
+              </tr>
+            )}
+            {!loading && pageItems.length === 0 && (
+              <tr>
+                <td colSpan={7} className="muted" style={{ textAlign: "center" }}>
+                  暂无数据
+                </td>
+              </tr>
+            )}
+            {pageItems.map((r, i) => (
+              <tr key={`${r.ba_id}-${i}`}>
+                <td className="mono cell-strong">{r.ba_id || "-"}</td>
+                <td title={r.email}>{truncate(r.email, 24)}</td>
+                <td>{flag(r.country)} {r.country || "-"}</td>
+                <td className="mono" style={{ maxWidth: 260 }} title={r.paypal_url}>
+                  {truncate(r.paypal_url, 34)}
+                </td>
+                <td className="num">{r.amount ?? "-"}</td>
+                <td>{r.currency || "-"}</td>
+                <td className="mono">{r.time || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="pagination">
+        <div className="page-info">
+          第 {currentPage} / {totalPages} 页 · 共 {shown.length} 条
+        </div>
+        <div className="page-controls">
+          <button
+            className="page-btn"
+            onClick={() => setPage(1)}
+            disabled={currentPage <= 1}
+          >
+            首页
+          </button>
+          <button
+            className="page-btn"
+            onClick={() => setPage(currentPage - 1)}
+            disabled={currentPage <= 1}
+          >
+            上一页
+          </button>
+          {pageNumbers.map((n) => (
+            <button
+              key={n}
+              className={`page-btn${n === currentPage ? " active" : ""}`}
+              onClick={() => setPage(n)}
+            >
+              {n}
+            </button>
+          ))}
+          <button
+            className="page-btn"
+            onClick={() => setPage(currentPage + 1)}
+            disabled={currentPage >= totalPages}
+          >
+            下一页
+          </button>
+          <button
+            className="page-btn"
+            onClick={() => setPage(totalPages)}
+            disabled={currentPage >= totalPages}
+          >
+            末页
+          </button>
+        </div>
+        <div className="page-size">
+          每页
+          <select
+            className="select"
+            style={{ width: 70 }}
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+          >
+            {PAGE_SIZES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          条
+        </div>
+      </div>
+    </div>
+  );
+}

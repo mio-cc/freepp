@@ -1,0 +1,18 @@
+{
+  "ok": false,
+  "token_len": 0,
+  "error": "bridge:timeout/no_token|legacy:timeout/no_token|protocol:pack_fail:Error: Cannot find module 'C:\\Users\\Administrator\\Desktop\\min\\min-implant-v2-20260804-v2.tar\\min-implant-v2-20",
+  "states": [],
+  "elapsedMs": 60108,
+  "iframeCount": 0,
+  "iframeSrcs": [],
+  "messageCount": 0,
+  "recentMessages": null,
+  "source": "",
+  "helper_mode": "bridge",
+  "device_profile": "mid_mac_intel",
+  "host_sum": 112,
+  "n_len": 13444,
+  "pow_ms": null,
+  "stderr_tail": "p] diag scripts=3 hcaptcha=undefined webdriver=false chrome=true wasm=object worker=function bigint=function iframes=0\n[hcap] strategy=window-write fallback\n[hcap] worker_polyfill fail Cannot find module './worker_polyfill.js'\nRequire stack:\n- C:\\Users\\Administrator\\Desktop\\min\\min-implant-v2-20260804-v2.tar\\min-implant-v2-20260804-v2\\min-implant-v2\\backend\\ba_paypal\\ba_fp_helpers\\hcaptcha_passive_node.js\n[hcap] write-path goto full url with siteKey query\n[hcap] worker_polyfill fail Cannot find module './worker_polyfill.js'\nRequire stack:\n- C:\\Users\\Administrator\\Desktop\\min\\min-implant-v2-20260804-v2.tar\\min-implant-v2-20260804-v2\\min-implant-v2\\backend\\ba_paypal\\ba_fp_helpers\\hcaptcha_passive_node.js\n[hcap] write-path location= https://b.stripecdn.com/stripethirdparty-srv/assets/v33.5/HCaptchaInvisible.html?siteKey=463b917e-e264-403f-ad34-34af0ee10294 siteKey? true hcaptcha= undefined\n[hcap-bridge] patched https.request with proxy agent\n[hcap-bridge] patched http.request with proxy agent\n[hcap-bridge] proxy=http://127.0.0.1:7890\n[hcap-bridge] forcePublicApi skipped (keep PayPal customDomains)\n[hcap-bridge] forced js.hcaptcha.com api host\n[hcap-bridge] bridge html len= 419 url= https://b.stripecdn.com/stripethirdparty-srv/assets/v33.5/HCaptchaInvisible.html?siteKey=463b917e-e264-403f-ad34-34af0ee\n[hcap-bridge] goto https://b.stripecdn.com/stripethirdparty-srv/assets/v33.5/HCaptchaInvisible.html?siteKey=463b917e-e264-403f-ad34-34af0ee10294\n[hcap-bridge] strategy= browser-goto"
+}

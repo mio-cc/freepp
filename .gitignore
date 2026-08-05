@@ -1,0 +1,22 @@
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+
+# runtime capture artifacts (regenerable)
+_atomic_gc_resp.bin
+_gc_*.bin
+_hcap_*.bin
+_hcap_*token*.txt
+_protocol_gc_resp.bin
+_semi_resp.bin
+_chrome_*.json
+_chrome_*.txt
+_jsdom_*.json
+_jsdom_*.txt
+_node_n.txt
+_t_jsdom_smoke.js
+
+# local config
+backend/config.yaml
+.env

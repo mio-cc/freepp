@@ -1,0 +1,8 @@
+# Min-Implant v2 后端依赖
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+curl_cffi>=0.7.0
+aiosqlite>=0.20.0
+pydantic>=2.0
+pyyaml>=6.0
+structlog>=24.0

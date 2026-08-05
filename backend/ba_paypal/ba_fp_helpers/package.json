@@ -1,0 +1,1 @@
+{"name":"ba-fp-helpers","private":true,"dependencies":{"@msgpack/msgpack":"^3.0.0","@napi-rs/canvas":"^1.0.3","happy-dom":"^15.0.0","https-proxy-agent":"^7.0.0"}}

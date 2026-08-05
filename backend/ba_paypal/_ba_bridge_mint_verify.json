@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "token_len": 0,
+  "source": "",
+  "error": "bridge:timeout/no_token|legacy:timeout/no_token|protocol:pack_fail:Error: Cannot find module 'C:\\Users\\Administrator\\Desktop\\min\\min-implant-v2-20260804-v2.tar\\min-implant-v2-20",
+  "states": [],
+  "helper_mode": "bridge"
+}
