@@ -67,6 +67,15 @@ async def lifespan(app: FastAPI):
     # 1. Token 存储
     await token_store.init()
     await token_store.reset_running()
+    # 1b. BA 授权队列: 清掉上次进程遗留的僵尸 running (任务随旧进程死亡,
+    #     队列状态没机会写回, 前端会一直显示"授权中"; 新进程内无旧任务)
+    try:
+        from core.ba_queue import mark_stale as _ba_mark_stale
+        _stale = _ba_mark_stale(older_than_ms=0)
+        if _stale:
+            print(f"[min-implant] BA 队列清理僵尸 running: {_stale} 条")
+    except Exception:
+        pass
     # 2. WebSocket 连接管理 + 调度器
     conn_mgr = ConnectionManager()
     orchestrator = AsyncChainOrchestrator(conn_mgr)
