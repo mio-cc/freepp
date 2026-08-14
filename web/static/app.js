@@ -1362,6 +1362,25 @@
     });
 
     $("clearInputBtn")?.addEventListener("click", () => { setHTML("tokenInput", ""); setHTML("importResult", ""); });
+
+    /* ---- Token 注册池导入 ---- */
+    $("importFromPoolBtn")?.addEventListener("click", async () => {
+      setHTML("poolImportResult", "拉取注册池中…");
+      const url = $("poolUrlInput")?.value.trim();
+      const source = $("poolSourceSelect")?.value || "stripe";
+      try {
+        const r = await api("/api/tokens/import-from-pool", "POST", { base_url: url || undefined, source });
+        if (r.ok) {
+          setHTML("poolImportResult",
+            `拉取 ${r.total} 条 → 导入 ${r.imported} 条, 跳过 ${r.skipped} 条`);
+          if (r.tokens) { state.tokens = r.tokens; renderTokenTable(); fillTokenSelects(); updateNavCounts(); }
+          pushLog(`注册池导入完成: 拉取 ${r.total}, 导入 ${r.imported}, 去重跳过 ${r.skipped}`, "ok");
+        } else {
+          setHTML("poolImportResult", r.error || "导入失败");
+          pushLog("注册池导入失败: " + (r.error || ""), "err");
+        }
+      } catch (e) { setHTML("poolImportResult", "异常: " + e); pushLog("注册池导入异常: " + e, "err"); }
+    });
     $("tknImportBtn")?.addEventListener("click", () => switchView("tokens"));
     $("tknRefreshBtn")?.addEventListener("click", async () => {
       try {

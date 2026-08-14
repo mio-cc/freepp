@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store/useStore";
 import { api } from "../api/client";
 import { BRANCH_CN } from "../types";
@@ -49,6 +49,51 @@ const STATUS_OPTIONS = Object.entries({
   expired: "失效",
 });
 
+/** 本地解析 JWT payload (不验签, 用于导入失焦校准预览)
+ *  JWS 3 段 (明文 payload) / JWE 5 段 (alg=dir 加密, payload 不可解, 标记 jwe) */
+function jwtMeta(jwt: string): { email: string; sub: string; account_id: string; plan_type: string; jwe: boolean } | null {
+  const parts = jwt.trim().split(".");
+  if (parts.length < 3 || parts.length > 5) return null;
+  const b64url = (s: string) => {
+    const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+    return b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+  };
+  try {
+    const header = JSON.parse(atob(b64url(parts[0])));
+    if ((header.alg || "").toLowerCase() === "dir" || parts.length >= 4) {
+      // JWE 加密 session token: 无明文字段
+      return { email: "", sub: "", account_id: "", plan_type: "", jwe: true };
+    }
+    const payload = JSON.parse(atob(b64url(parts[1])));
+    const auth = payload["https://api.openai.com/auth"] || {};
+    const prof = payload["https://api.openai.com/profile"] || {};
+    const email = (prof && typeof prof === "object" && prof.email) || payload.email || "";
+    return {
+      email: String(email || ""),
+      sub: String(payload.sub || ""),
+      account_id: String(auth.user_id || ""),
+      plan_type: String(auth.chatgpt_plan_type || auth.plan || payload.plan || "free"),
+      jwe: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+interface CalibItem {
+  ok: boolean;
+  email: string;
+  plan: string;
+  err: string;
+}
+interface CalibResult {
+  total: number;
+  ok: number;
+  fail: number;
+  items: CalibItem[];
+  firstErr: string;
+}
+
 function methodLabel(m: string): string {
   if (m === "email") return "邮箱";
   if (m === "phone") return "手机";
@@ -71,15 +116,32 @@ export function TokensView() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [raw, setRaw] = useState("");
   const [result, setResult] = useState("");
+  const [calib, setCalib] = useState<CalibResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [probingId, setProbingId] = useState("");
+  const [editingTagsId, setEditingTagsId] = useState("");
+  const [editingTagsVal, setEditingTagsVal] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [poolUrl, setPoolUrl] = useState("");
+  const [poolResult, setPoolResult] = useState("");
+  const [poolBusy, setPoolBusy] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  const PAGE_SIZES = [10, 20, 50, 100];
 
   const tokenSource = (t: Token): string => (t as any).source || "stripe";
+
+  /** 防御: tags 可能为数组/字符串/undefined */
+  const tagsOf = (t: any): string[] =>
+    Array.isArray(t?.tags) ? t.tags : typeof t?.tags === "string" && t.tags ? t.tags.split(",").map((s: string) => s.trim()).filter(Boolean) : [];
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tokens.filter((t) => {
       if (tokenSource(t) !== activeBranchTokenSource(activeBranch)) return false;
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
+      if (tagFilter && !tagsOf(t).includes(tagFilter)) return false;
       if (!q) return true;
       return (
         (t.email || "").toLowerCase().includes(q) ||
@@ -87,10 +149,42 @@ export function TokensView() {
         (t.account_id || "").toLowerCase().includes(q)
       );
     });
-  }, [tokens, search, statusFilter, activeBranch]);
+  }, [tokens, search, statusFilter, activeBranch, tagFilter]);
+
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    tokens.forEach((t) => {
+      if (tokenSource(t) !== activeBranchTokenSource(activeBranch)) return;
+      tagsOf(t).forEach((tag) => set.add(tag));
+    });
+    return Array.from(set).sort();
+  }, [tokens, activeBranch]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageTokens = useMemo(
+    () => filtered.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filtered, safePage, pageSize]
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, activeBranch, pageSize, tagFilter]);
 
   const allSelected =
-    filtered.length > 0 && filtered.every((t) => selectedTokenIds.has(t.id));
+    pageTokens.length > 0 && pageTokens.every((t) => selectedTokenIds.has(t.id));
+
+  const togglePageSelect = () => {
+    if (allSelected) {
+      pageTokens.forEach((t) => {
+        if (selectedTokenIds.has(t.id)) toggleTokenSelect(t.id);
+      });
+    } else {
+      pageTokens.forEach((t) => {
+        if (!selectedTokenIds.has(t.id)) toggleTokenSelect(t.id);
+      });
+    }
+  };
 
   const statBadges = useMemo(() => {
     const c: Record<string, number> = {};
@@ -105,10 +199,11 @@ export function TokensView() {
   const handleRefresh = async () => {
     setBusy(true);
     try {
-      const r = await api(`/api/tokens?source=${activeBranchTokenSource(activeBranch)}`);
+      const r = await api("/api/tokens");
       if (r && Array.isArray(r.tokens)) {
         useStore.setState({ tokens: r.tokens });
-        setResult(`已刷新，共 ${r.tokens.length} 个 Token`);
+        const cur = r.tokens.filter((t: Token) => tokenSource(t) === activeBranchTokenSource(activeBranch));
+        setResult(`已刷新，共 ${r.tokens.length} 个 Token（${activeBranchTokenSource(activeBranch)} 库 ${cur.length} 个）`);
       } else {
         setResult("刷新失败: 返回数据异常");
       }
@@ -116,6 +211,237 @@ export function TokensView() {
       setResult("刷新失败: " + (e as Error).message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleRepair = async () => {
+    setBusy(true);
+    try {
+      const r = await api("/api/tokens/repair", "POST", {});
+      setResult(`元数据修复完成: 修正 ${r?.fixed ?? 0} 条 / 共 ${r?.total ?? 0} 条`);
+      const tokensR = await api("/api/tokens");
+      if (tokensR && Array.isArray(tokensR.tokens)) {
+        useStore.setState({ tokens: tokensR.tokens });
+      }
+    } catch (e) {
+      setResult("修复失败: " + (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleProbe = async (t: Token) => {
+    setProbingId(t.id);
+    try {
+      const r = await api(`/api/tokens/${t.id}/probe`, "POST", {});
+      const stype = r?.session_type || "";
+      const probe = r?.probe || {};
+      useStore.setState((s) => ({
+        tokens: s.tokens.map((x) => (x.id === t.id ? { ...x, session_type: stype, probe } : x)),
+      }));
+      const pe = probe.token_error || "";
+      setResult(`探测完成: ${t.email || t.sub} → ${stype || "未知"}${pe ? ` · ${pe}` : ""}${probe.promo ? ` · 优惠:${probe.promo === "yes" ? "有" : probe.promo}` : ""}`);
+    } catch (e) {
+      setResult("探测失败: " + (e as Error).message);
+    } finally {
+      setProbingId("");
+    }
+  };
+
+  const probeProgress = useStore((s) => s.probeProgress);
+
+  const probingNow = probeProgress.total > 0 && probeProgress.done < probeProgress.total;
+  const handleBatchProbe = async () => {
+    const ids = filtered.map((t) => t.id);
+    if (ids.length === 0) {
+      setResult("当前筛选下没有可探测的 Token");
+      return;
+    }
+    useStore.setState({ probeProgress: { done: 0, total: ids.length } });
+    setResult(`批量探测启动: ${ids.length} 个 Token，每完成一条实时更新…`);
+    try {
+      const r = await api("/api/tokens/probe", "POST", { ids });
+      if (r && r.ok) {
+        pushLog(`批量探测启动: ${r.started ?? 0} 个`, "ok");
+        setResult(`批量探测已启动 ${r.started ?? 0} 个 Token，每完成一条实时更新…`);
+      } else {
+        setResult("批量探测启动失败: " + (r?.error || "未知错误"));
+        useStore.setState({ probeProgress: { done: 0, total: 0 } });
+      }
+    } catch (e) {
+      setResult("批量探测启动失败: " + (e as Error).message);
+      useStore.setState({ probeProgress: { done: 0, total: 0 } });
+    }
+  };
+
+  /** 下拉选项: 现有标签 + 预设常用标签 */
+  const PRESET_TAGS = ["促销", "无优惠", "已吊销", "已过期", "限流", "cs_live", "oaics", "Google", "邮箱", "手机"];
+  const tagOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { value: string; preset: boolean }[] = [];
+    allTags.forEach((t) => { if (!seen.has(t)) { seen.add(t); out.push({ value: t, preset: false }); } });
+    PRESET_TAGS.forEach((t) => { if (!seen.has(t)) { seen.add(t); out.push({ value: t, preset: true }); } });
+    return out;
+  }, [allTags]);
+
+  const saveTags = async (t: Token, raw: string) => {
+    const tags = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    try {
+      const r = await api(`/api/tokens/${t.id}/tags`, "POST", { tags });
+      if (r && r.ok) {
+        useStore.setState((s) => ({
+          tokens: s.tokens.map((x) => (x.id === t.id ? { ...x, tags: r.tags || [] } : x)),
+        }));
+      }
+    } catch { /* ignore */ }
+  };
+
+  const sessionBadge = (st: string | undefined) => {
+    if (!st) return { label: "未探测", cls: "badge-muted" };
+    if (st === "cs_live") return { label: "cs_live", cls: "badge-success" };
+    if (st === "oaics") return { label: "oaics", cls: "badge-accent" };
+    if (st.startsWith("error")) return { label: st.slice(0, 18), cls: "badge-danger" };
+    return { label: st, cls: "badge-muted" };
+  };
+
+  const tokenErrBadge = (pe: string | undefined) => {
+    if (!pe) return null;
+    if (pe.includes("吊销")) return { label: pe, cls: "badge-danger" };
+    if (pe.includes("过期")) return { label: pe, cls: "badge-warn" };
+    if (pe.includes("限流")) return { label: pe, cls: "badge-warn" };
+    return { label: pe.slice(0, 14), cls: "badge-danger" };
+  };
+
+  const promoBadge = (promo: string | undefined) => {
+    if (!promo) return null;
+    if (promo === "yes") return { label: "优惠✓", cls: "badge-success" };
+    if (promo === "no") return { label: "无优惠", cls: "badge-muted" };
+    return { label: promo.slice(0, 14), cls: "badge-warn" };
+  };
+
+  /** 递归收集账号对象 (兼容 mail-otp-server 导出: 数组 / sub2api.accounts / codex·codexmanager.tokens) */
+function collectTokens(o: any, out: CalibItem[]) {
+  if (!o || typeof o !== "object") return;
+  if (Array.isArray(o)) {
+    o.forEach((x) => collectTokens(x, out));
+    return;
+  }
+  const tokens = o.tokens && typeof o.tokens === "object" ? o.tokens : {};
+  const creds = o.credentials && typeof o.credentials === "object" ? o.credentials : {};
+  const user = o.user && typeof o.user === "object" ? o.user : {};
+  const account = o.account && typeof o.account === "object" ? o.account : {};
+  const meta = o.meta && typeof o.meta === "object" ? o.meta : {};
+  const at = String(
+    o.accessToken || o.access_token ||
+    tokens.accessToken || tokens.access_token ||
+    creds.accessToken || creds.access_token || ""
+  ).trim();
+  const st = String(o.sessionToken || o.session_token || creds.sessionToken || creds.session_token || "").trim();
+  const email = String(o.email || user.email || account.email || meta.label || "");
+  const parsed = at && jwtMeta(at);
+  if (parsed) {
+    out.push({
+      ok: true,
+      email: parsed.jwe ? "JWE 加密 session token" : email || parsed.email || at.slice(0, 20) + "…",
+      plan: parsed.jwe ? "jwe" : parsed.plan_type,
+      err: "",
+    });
+    return;
+  }
+  if (st && jwtMeta(st)) {
+    // 仅 session token 的条目 (如单独 JWE)
+    out.push({ ok: true, email: "仅 session token (无 access token)", plan: "jwe", err: "" });
+    return;
+  }
+  for (const k of ["accounts", "tokens", "credentials"]) {
+    if (o[k] && typeof o[k] === "object") collectTokens(o[k], out);
+  }
+}
+
+  const calibrateText = (text: string) => {
+    const items: CalibItem[] = [];
+    // 整段 JSON (对象 / 数组 / sub2api / codex 等包装)
+    try {
+      const whole = JSON.parse(text.trim());
+      if (whole && typeof whole === "object") {
+        collectTokens(whole, items);
+        if (items.length > 0) {
+          const ok = items.filter((i) => i.ok).length;
+          const fail = items.length - ok;
+          setCalib({
+            total: items.length,
+            ok,
+            fail,
+            items,
+            firstErr: items.find((i) => !i.ok)?.err || "",
+          });
+          return;
+        }
+      }
+    } catch {
+      /* 整段解析失败则逐行 */
+    }
+    const lines = text.split("\n");
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t) continue;
+      if (t.startsWith("{") || t.startsWith("[")) {
+        try {
+          const o = JSON.parse(t);
+          collectTokens(o, items);
+          continue;
+        } catch {
+          // 行内 JSON 失败, 落到裸 JWT 判定
+        }
+      }
+      const meta = jwtMeta(t);
+      if (meta) {
+        items.push({
+          ok: true,
+          email: meta.jwe ? "JWE 加密 session token" : meta.email || meta.sub.slice(0, 20) + "…",
+          plan: meta.jwe ? "jwe" : meta.plan_type,
+          err: "",
+        });
+      } else {
+        items.push({ ok: false, email: "", plan: "", err: "非 JWT / 非 JSON" });
+      }
+    }
+    const ok = items.filter((i) => i.ok).length;
+    const fail = items.length - ok;
+    setCalib({
+      total: items.length,
+      ok,
+      fail,
+      items,
+      firstErr: items.find((i) => !i.ok)?.err || "",
+    });
+  };
+
+  const handleCalibrate = () => calibrateText(raw);
+
+  const [filesInfo, setFilesInfo] = useState<string[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [reading, setReading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dirInputRef = useRef<HTMLInputElement>(null);
+
+  const readFiles = async (list: FileList | File[]) => {
+    const arr = Array.from(list);
+    if (arr.length === 0) return;
+    setReading(true);
+    try {
+      const texts = await Promise.all(arr.map((f) => f.text()));
+      const joined = texts.join("\n");
+      setRaw(joined);
+      setFilesInfo(arr.map((f) => f.name));
+      setResult(`已读取 ${arr.length} 个文件, 共 ${joined.length} 字符, 正在校准…`);
+      setCalib(null);
+      // setRaw 异步生效, 用文本直接校准
+      calibrateText(joined);
+    } catch (e) {
+      setResult("读取文件失败: " + (e as Error).message);
+    } finally {
+      setReading(false);
     }
   };
 
@@ -130,10 +456,11 @@ export function TokensView() {
         raw,
         source: activeBranchTokenSource(activeBranch),
       });
-      if (r && Array.isArray(r.tokens)) {
-        useStore.setState({ tokens: r.tokens });
+      const tokensR = await api("/api/tokens");
+      if (tokensR && Array.isArray(tokensR.tokens)) {
+        useStore.setState({ tokens: tokensR.tokens });
       }
-      setResult(`导入完成: 成功 ${r.imported ?? 0}, 失败 ${r.failed ?? 0}`);
+      setResult(`导入完成: 成功 ${r.imported ?? 0}, 失败 ${r.failed ?? 0}, 库内共 ${tokensR?.tokens?.length ?? 0} 个`);
     } catch (e) {
       setResult("导入失败: " + (e as Error).message);
     } finally {
@@ -144,6 +471,30 @@ export function TokensView() {
   const handleClear = () => {
     setRaw("");
     setResult("");
+  };
+
+  const handlePoolImport = async () => {
+    setPoolBusy(true);
+    setPoolResult("拉取注册池中…");
+    try {
+      const r = await api("/api/tokens/import-from-pool", "POST", {
+        base_url: poolUrl.trim() || undefined,
+        source: activeBranchTokenSource(activeBranch),
+      });
+      if (r && r.ok) {
+        setPoolResult(`拉取 ${r.total ?? 0}, 导入 ${r.imported ?? 0}, 去重跳过 ${r.skipped ?? 0}`);
+        const tokensR = await api("/api/tokens");
+        if (tokensR && Array.isArray(tokensR.tokens)) {
+          useStore.setState({ tokens: tokensR.tokens });
+        }
+      } else {
+        setPoolResult(r?.error || "导入失败");
+      }
+    } catch (e) {
+      setPoolResult("异常: " + (e as Error).message);
+    } finally {
+      setPoolBusy(false);
+    }
   };
 
   const runChain = async (ids: string[]) => {
@@ -229,8 +580,38 @@ export function TokensView() {
               </option>
             ))}
           </select>
+          <select
+            className="select"
+            style={{ width: 130 }}
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+          >
+            <option value="">全部标签</option>
+            {tagOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.value}{opt.preset ? " ⚡" : ""}
+              </option>
+            ))}
+          </select>
+          {tagFilter && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setTagFilter("")}
+              title="清除标签筛选"
+            >
+              清除✕
+            </button>
+          )}
           <button className="btn" onClick={handleRefresh} disabled={busy}>
             刷新
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={handleRepair}
+            disabled={busy}
+            title="重算注册方式并清除被污染的邮箱 (user-xxx)"
+          >
+            重解析元数据
           </button>
         </div>
       </div>
@@ -245,13 +626,27 @@ export function TokensView() {
         <div className="card-body tight">
           <div className="inline-fields">
             <span className="badge badge-info">已选 {selectedTokenIds.size}</span>
+            <span className="muted" style={{ fontSize: 12 }}>共 {filtered.length} 条</span>
             <button
               className="btn btn-ghost btn-sm"
-              onClick={() => selectAllTokens()}
-              disabled={filtered.length === 0}
+              onClick={togglePageSelect}
+              disabled={pageTokens.length === 0}
             >
-              {allSelected ? "取消全选" : "全选"}
+              {allSelected ? "取消本页全选" : "本页全选"}
             </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={handleBatchProbe}
+              disabled={probingNow || filtered.length === 0}
+              title="探测当前筛选下全部 Token 的会话类型/优惠资格/token 状态"
+            >
+              {probingNow ? `探测中 ${probeProgress.done}/${probeProgress.total}` : `批量探测 (${filtered.length})`}
+            </button>
+            {probingNow && (
+              <span className="badge badge-info" style={{ minWidth: 60 }}>
+                {Math.round((probeProgress.done / probeProgress.total) * 100)}%
+              </span>
+            )}
             <button
               className="btn btn-primary"
               onClick={handleBatchStart}
@@ -289,26 +684,155 @@ export function TokensView() {
         <div className="card-head">
           <span className="card-title">导入 Token → {BRANCH_CN[activeBranch]} 库</span>
           <span className="card-hint">
-            粘贴 accessToken / Session JSON · 自动解析套餐与邮箱元数据
+            粘贴 / 选择文件 / 选择文件夹 / 拖拽导入 · 自动解析全部 GPT 导出格式 (raw / session / cpa /
+            sub2api / codex2api / codexmanager / cockpit / codex / JWT / JWE)
           </span>
         </div>
-        <div style={{ padding: "14px 16px 0" }}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => {
+            if (e.target.files) readFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={dirInputRef}
+          type="file"
+          multiple
+          {...({ webkitdirectory: "", directory: "" } as any)}
+          style={{ display: "none" }}
+          onChange={(e) => {
+            if (e.target.files) readFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <div
+          className={"import-dropzone" + (dragging ? " dropzone-active" : "")}
+          style={{ padding: "14px 16px 0" }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            readFiles(e.dataTransfer.files);
+          }}
+        >
           <textarea
             className="textarea"
             rows={5}
-            placeholder='{"accessToken":"...","sub":"..."} 或每行一个 JSON'
+            placeholder='{"accessToken":"...","sub":"..."} 或每行一个 JWT/JSON（失焦自动校准）· 或将文件拖到这里'
             value={raw}
-            onChange={(e) => setRaw(e.target.value)}
+            onChange={(e) => {
+              setRaw(e.target.value);
+              setCalib(null);
+            }}
+            onBlur={handleCalibrate}
           />
+          {dragging && (
+            <div className="dropzone-hint">
+              <span style={{ fontSize: 18 }}>📥</span> 松开鼠标导入文件…
+            </div>
+          )}
         </div>
+        {filesInfo.length > 0 && (
+          <div style={{ padding: "10px 16px 0", display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {filesInfo.slice(0, 10).map((n, i) => (
+              <span key={i} className="tag file-item" style={{ animationDelay: `${i * 40}ms`, fontSize: 10.5 }}>
+                {n}
+              </span>
+            ))}
+            {filesInfo.length > 10 && (
+              <span className="tag file-item" style={{ fontSize: 10.5 }}>+{filesInfo.length - 10} 个文件</span>
+            )}
+          </div>
+        )}
+        {calib && calib.total > 0 && (
+          <div className="card-body tight" style={{ margin: "10px 16px 0", border: "1px solid var(--border-faint)" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span className={`badge ${calib.ok > 0 ? "badge-success" : "badge-muted"}`}>
+                有效 {calib.ok}
+              </span>
+              <span className="badge badge-muted">共 {calib.total} 行</span>
+              {calib.fail > 0 && (
+                <span className="badge badge-danger" title={calib.firstErr}>
+                  无效 {calib.fail} · {calib.firstErr}
+                </span>
+              )}
+              <span className="muted" style={{ fontSize: 11 }}>
+                失焦校准 · 预览 (前 {Math.min(calib.items.length, 6)} 条):
+              </span>
+            </div>
+            <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
+              {calib.items.slice(0, 6).map((it, i) => (
+                <div key={i} className="mono" style={{ fontSize: 11, display: "flex", gap: 8 }}>
+                  <span style={{ color: it.ok ? "var(--ok)" : "var(--danger)" }}>
+                    {it.ok ? "✓" : "✗"}
+                  </span>
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {it.ok ? (it.email || "-") : it.err}
+                  </span>
+                  {it.ok && <span className="tag" style={{ fontSize: 10 }}>{it.plan}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="btn-row">
-          <button className="btn btn-primary" onClick={handleImport} disabled={busy}>
-            导入
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              handleCalibrate();
+              handleImport();
+            }}
+            disabled={busy || reading}
+          >
+            {busy ? "导入中…" : "导入"}
           </button>
-          <button className="btn" onClick={handleClear}>
+          <button className="btn" onClick={() => fileInputRef.current?.click()} disabled={busy || reading}>
+            {reading ? "读取中…" : "📄 选择文件"}
+          </button>
+          <button className="btn" onClick={() => dirInputRef.current?.click()} disabled={busy || reading}>
+            选择文件夹
+          </button>
+          <button
+            className="btn"
+            onClick={() => {
+              handleClear();
+              setCalib(null);
+              setFilesInfo([]);
+            }}
+          >
             清空
           </button>
           {result && <span className="muted">{result}</span>}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="card-head">
+          <span className="card-title">从注册池导入 → {BRANCH_CN[activeBranch]} 库</span>
+          <span className="card-hint">
+            拉取 codex_register 未使用邮箱/token · access_token + email 双重去重
+          </span>
+        </div>
+        <div className="btn-row" style={{ flexWrap: "wrap" }}>
+          <input
+            className="input"
+            style={{ flex: 1, minWidth: 260 }}
+            placeholder="注册池地址（默认 config.register_pool.base_url）"
+            value={poolUrl}
+            onChange={(e) => setPoolUrl(e.target.value)}
+          />
+          <button className="btn btn-primary" onClick={handlePoolImport} disabled={poolBusy}>
+            {poolBusy ? "拉取中…" : "拉取并导入"}
+          </button>
+          {poolResult && <span className="muted">{poolResult}</span>}
         </div>
       </div>
 
@@ -320,28 +844,35 @@ export function TokensView() {
                 <input
                   type="checkbox"
                   checked={allSelected}
-                  onChange={() => selectAllTokens()}
+                  onChange={togglePageSelect}
                 />
               </th>
               <th>Email / Sub</th>
               <th>套餐</th>
               <th>注册方式</th>
+              <th>探测</th>
+              <th>标签</th>
               <th>上次运行</th>
               <th>状态</th>
               <th className="row-action" style={{ textAlign: "right" }}>操作</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && (
+            {pageTokens.length === 0 && (
               <tr>
-                <td colSpan={7} className="muted" style={{ textAlign: "center" }}>
+                <td colSpan={9} className="muted" style={{ textAlign: "center" }}>
                   暂无数据 — 导入 Token 或切换提链分支
                 </td>
               </tr>
             )}
-            {filtered.map((t) => {
+            {pageTokens.map((t) => {
               const badge = STATUS_BADGE[t.status || "idle"] || STATUS_BADGE.idle;
               const isRunning = t.status === "running";
+              const sbadge = sessionBadge((t as any).session_type);
+              const probe = (t as any).probe || {};
+              const terr = tokenErrBadge(probe.token_error);
+              const pbadge = promoBadge(probe.promo);
+              const paypal = probe.paypal ? "· paypal" : "";
               return (
                 <tr
                   key={t.id}
@@ -363,13 +894,72 @@ export function TokensView() {
                     <span className="tag">{t.plan_type || "free"}</span>
                   </td>
                   <td>{methodLabel(t.register_method)}</td>
+                  <td>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, maxWidth: 150 }}>
+                      <span className={`badge ${sbadge.cls}`} title={(t as any).session_type || "导入后自动探测 / 手动点击探测"}>
+                        {sbadge.label}
+                      </span>
+                      {pbadge && <span className={`badge ${pbadge.cls}`} title="促销资格探测 (update 注入 promo)">{pbadge.label}</span>}
+                      {terr && <span className={`badge ${terr.cls}`} title="checkout 返回的 token 状态">{terr.label}</span>}
+                      {paypal && <span className="tag" title="init 显示 paypal 渠道可用">paypal✓</span>}
+                    </div>
+                  </td>
+                  <td>
+                    {editingTagsId === t.id ? (
+                      <input
+                        className="input"
+                        style={{ width: 110 }}
+                        autoFocus
+                        value={editingTagsVal}
+                        placeholder="逗号分隔"
+                        onChange={(e) => setEditingTagsVal(e.target.value)}
+                        onBlur={() => {
+                          saveTags(t, editingTagsVal);
+                          setEditingTagsId("");
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            saveTags(t, editingTagsVal);
+                            setEditingTagsId("");
+                          } else if (e.key === "Escape") {
+                            setEditingTagsId("");
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{ display: "flex", flexWrap: "wrap", gap: 3, maxWidth: 150, cursor: "text" }}
+                        onClick={() => {
+                          setEditingTagsVal(tagsOf(t).join(", "));
+                          setEditingTagsId(t.id);
+                        }}
+                        title="点击编辑标签 (逗号分隔)"
+                      >
+                        {tagsOf(t).length === 0 ? (
+                          <span className="muted" style={{ fontSize: 11 }}>+ 标签</span>
+                        ) : (
+                          tagsOf(t).map((tag) => (
+                            <span key={tag} className="tag" style={{ background: "var(--accent-dim)", color: "var(--accent)" }}>{tag}</span>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="muted" style={{ fontSize: 11 }}>
                     {t.last_run_at ? t.last_run_at.slice(0, 19).replace("T", " ") : "从未"}
                   </td>
                   <td>
                     <span className={`badge ${badge.cls}`}>{badge.label}</span>
                   </td>
-                  <td style={{ textAlign: "right" }}>
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => handleProbe(t)}
+                      disabled={busy || isRunning || probingId === t.id}
+                      title="探测会话类型 / 优惠资格 / token 状态"
+                    >
+                      {probingId === t.id ? "探测中…" : "探测"}
+                    </button>
                     <button
                       className="btn btn-ghost btn-sm"
                       onClick={() => handleRunOne(t)}
@@ -383,6 +973,39 @@ export function TokensView() {
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className="pager" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {filtered.length === 0 ? "0 条" : `${(safePage - 1) * pageSize + 1}-${Math.min(safePage * pageSize, filtered.length)} / ${filtered.length} 条`}
+        </span>
+        <button
+          className="btn btn-sm"
+          onClick={() => setPage(safePage - 1)}
+          disabled={safePage <= 1}
+        >
+          上一页
+        </button>
+        <span className="muted" style={{ fontSize: 12 }}>
+          第 {safePage} / {totalPages} 页
+        </span>
+        <button
+          className="btn btn-sm"
+          onClick={() => setPage(safePage + 1)}
+          disabled={safePage >= totalPages}
+        >
+          下一页
+        </button>
+        <select
+          className="select select-sm"
+          style={{ width: 90 }}
+          value={pageSize}
+          onChange={(e) => setPageSize(Number(e.target.value))}
+        >
+          {PAGE_SIZES.map((n) => (
+            <option key={n} value={n}>{n} 条/页</option>
+          ))}
+        </select>
       </div>
     </div>
   );

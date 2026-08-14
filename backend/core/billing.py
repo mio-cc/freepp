@@ -160,12 +160,58 @@ for _c, (_cap, _pc, _cur) in GEO.items():
     if _cur:
         _BILLING_CURRENCY[_c] = _cur
 
+# 欧元区 (官方使用 EUR): 欧盟欧元区 20 国 + 单方面采用的小国
+_EUR_COUNTRIES: frozenset[str] = frozenset({
+    "AD", "AT", "BE", "CY", "DE", "EE", "ES", "FI", "FR", "GR", "HR", "IE",
+    "IT", "LT", "LU", "LV", "MC", "ME", "MT", "NL", "PT", "SI", "SK", "SM", "VA",
+})
+
+# 非欧元国家 ISO 4217 币种表 (GEO 未覆盖国家的兜底, 含旧 _EUR_COUNTRIES 中误归欧元区的国家)
+CURRENCY_BY_COUNTRY: dict[str, str] = {
+    "AF": "AFN", "AL": "ALL", "AM": "AMD", "AO": "AOA", "AR": "ARS", "AW": "AWG",
+    "AZ": "AZN", "BA": "BAM", "BB": "BBD", "BD": "BDT", "BG": "BGN", "BH": "BHD",
+    "BI": "BIF", "BM": "BMD", "BN": "BND", "BO": "BOB", "BS": "BSD", "BT": "BTN",
+    "BW": "BWP", "BY": "BYN", "BZ": "BZD", "CD": "CDF", "CF": "XAF", "CG": "XAF",
+    "CM": "XAF", "CN": "CNY", "CO": "COP", "CR": "CRC", "CU": "CUP", "CV": "CVE",
+    "CW": "ANG", "CZ": "CZK", "DJ": "DJF", "DO": "DOP", "DZ": "DZD", "EG": "EGP",
+    "ER": "ERN", "ET": "ETB", "FO": "DKK", "FJ": "FJD", "GA": "XAF", "GE": "GEL",
+    "GH": "GHS", "GI": "GIP", "GL": "DKK", "GM": "GMD", "GN": "GNF", "GQ": "XAF",
+    "GT": "GTQ", "GY": "GYD", "HN": "HNL", "HT": "HTG", "HU": "HUF", "IQ": "IQD",
+    "IR": "IRR", "IS": "ISK", "JM": "JMD", "JO": "JOD", "KE": "KES", "KG": "KGS",
+    "KH": "KHR", "KM": "KMF", "KW": "KWD", "KY": "KYD", "KZ": "KZT", "LA": "LAK",
+    "LB": "LBP", "LI": "CHF", "LK": "LKR", "LR": "LRD", "LS": "LSL", "LY": "LYD",
+    "MA": "MAD", "MD": "MDL", "MG": "MGA", "MK": "MKD", "MM": "MMK", "MN": "MNT",
+    "MO": "MOP", "MR": "MRU", "MU": "MUR", "MV": "MVR", "MW": "MWK", "MZ": "MZN",
+    "NA": "NAD", "NG": "NGN", "NI": "NIO", "NP": "NPR", "OM": "OMR", "PA": "PAB",
+    "PE": "PEN", "PG": "PGK", "PK": "PKR", "PY": "PYG", "QA": "QAR", "RO": "RON",
+    "RS": "RSD", "RU": "RUB", "RW": "RWF", "SB": "SBD", "SC": "SCR", "SD": "SDG",
+    "SH": "SHP", "SL": "SLL", "SO": "SOS", "SR": "SRD", "SS": "SSP", "ST": "STN",
+    "SV": "SVC", "SY": "SYP", "SZ": "SZL", "TJ": "TJS", "TM": "TMT", "TN": "TND",
+    "TO": "TOP", "TT": "TTD", "TZ": "TZS", "UA": "UAH", "UG": "UGX", "UY": "UYU",
+    "UZ": "UZS", "VE": "VES", "VU": "VUV", "WS": "WST", "YE": "YER", "ZM": "ZMW",
+    "ZW": "ZWL",
+    # 西非法郎 / 东加勒比元 / 太平洋法郎区
+    "BJ": "XOF", "BF": "XOF", "CI": "XOF", "GW": "XOF", "ML": "XOF",
+    "NE": "XOF", "SN": "XOF", "TG": "XOF",
+    "AG": "XCD", "AI": "XCD", "DM": "XCD", "GD": "XCD", "KN": "XCD",
+    "LC": "XCD", "MS": "XCD", "VC": "XCD",
+    "PF": "XPF", "NC": "XPF", "WF": "XPF",
+}
+
 
 def billing_currency(country: str) -> str:
-    """账单国对应的币种 (DE->EUR, US->USD...)，未知回退 USD。"""
+    """账单国对应的币种 (US->USD, AU->AUD, 欧元区->EUR, 其余按 GEO/ISO 4217), 未知回退 USD。"""
     c = (country or "").upper()
+    if c == "US":
+        return "USD"
+    if c == "AU":
+        return "AUD"
+    if c in _EUR_COUNTRIES:
+        return "EUR"
     if c in _BILLING_CURRENCY:
         return _BILLING_CURRENCY[c]
+    if c in CURRENCY_BY_COUNTRY:
+        return CURRENCY_BY_COUNTRY[c]
     for cc, cur in CHECKOUT_MATRIX:
         if cc == c:
             return cur

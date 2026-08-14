@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "../store/useStore";
 import { api } from "../api/client";
 import { BRANCH_CN } from "../types";
@@ -40,33 +40,17 @@ function normalize(sample: Record<string, unknown>): InventoryRecord {
       (sample.amount_due as string | number) ??
       "",
     currency: (sample.currency as string) || "",
-    time: (sample.time as string) || (sample.ts as string) || "",
+    time: fmtTime((sample.time as string) || (sample.ts as string) || ""),
+    channel: (sample.channel as string) || "",
   };
 }
 
-function generateMock(count: number): InventoryRecord[] {
-  const countries = ["US", "GB", "DE", "FR", "JP", "BR", "CA", "AU", "NL", "ES"];
-  const recs: InventoryRecord[] = [];
-  for (let i = 0; i < count; i++) {
-    const c = countries[i % countries.length];
-    const token = Math.random()
-      .toString(36)
-      .slice(2, 14)
-      .toUpperCase();
-    recs.push({
-      ba_id: `BA${100000 + i}`,
-      email: `user${i}@example.com`,
-      country: c,
-      paypal_url: `https://www.paypal.com/checkoutnow?token=EC-${token}`,
-      amount: (Math.random() * 100).toFixed(2),
-      currency: "USD",
-      time: new Date(Date.now() - i * 60000)
-        .toISOString()
-        .slice(0, 19)
-        .replace("T", " "),
-    });
-  }
-  return recs;
+function fmtTime(s: string): string {
+  if (!s) return "";
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 function truncate(s: string, n: number): string {
@@ -76,55 +60,54 @@ function truncate(s: string, n: number): string {
 
 function flag(cc: string): string {
   if (!cc || cc.length !== 2) return "";
-  const cp = 0x1f1e6 + (cc.charCodeAt(0) - 65) * 0x100 + (cc.charCodeAt(1) - 65);
-  return String.fromCodePoint(cp);
+  const a = cc.charCodeAt(0), b = cc.charCodeAt(1);
+  if (a < 65 || a > 90 || b < 65 || b > 90) return "";
+  return (
+    String.fromCodePoint(0x1f1e6 + (a - 65)) +
+    String.fromCodePoint(0x1f1e6 + (b - 65))
+  );
 }
 
 export function InventoryView() {
-  const inventory = useStore((s) => s.inventory);
-  const inventoryLoaded = useStore((s) => s.inventoryLoaded);
   const activeBranch = useStore((s) => s.activeBranch);
   const setActiveBranch = useStore((s) => s.setActiveBranch);
+  const pushLog = useStore((s) => s.pushLog);
 
+  const [inventory, setInventory] = useState<InventoryRecord[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [loading, setLoading] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const branchChannel = BRANCH_CHANNEL[activeBranch] || "paypal";
 
+  const fetchInventory = useCallback(
+    async (channel: string) => {
+      setLoading(true);
+      try {
+        const r = await api(`/api/tokens/inventory?channel=${encodeURIComponent(channel)}&limit=1000`);
+        const recs = Array.isArray(r?.records) ? r.records.map((s: Record<string, unknown>) => normalize(s)) : [];
+        setInventory(recs);
+        setLoaded(true);
+      } catch {
+        setInventory([]);
+        setLoaded(true);
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
-    if (inventoryLoaded) return;
-    setLoading(true);
-    api("/api/tokens/inventory?limit=500")
-      .then((r) => {
-        if (r && Array.isArray(r.records) && r.records.length > 0) {
-          const recs = r.records.map((s: Record<string, unknown>) => normalize(s));
-          useStore.setState({ inventory: recs, inventoryLoaded: true });
-        } else {
-          api(`/api/samples?success=true&limit=500`)
-            .then((r2) => {
-              if (r2 && Array.isArray(r2.samples) && r2.samples.length > 0) {
-                const recs = r2.samples.map((s: Record<string, unknown>) => normalize(s));
-                useStore.setState({ inventory: recs, inventoryLoaded: true });
-              } else {
-                useStore.setState({
-                  inventory: generateMock(527),
-                  inventoryLoaded: true,
-                });
-              }
-            })
-            .catch(() => {
-              useStore.setState({ inventory: generateMock(527), inventoryLoaded: true });
-            });
-        }
-      })
-      .catch(() => {
-        useStore.setState({ inventory: generateMock(527), inventoryLoaded: true });
-      })
-      .finally(() => setLoading(false));
-  }, [inventoryLoaded]);
+    setLoaded(false);
+    setPage(1);
+    setCountry("all");
+    fetchInventory(branchChannel);
+  }, [branchChannel, fetchInventory]);
 
   const countries = useMemo(() => {
     const set = new Set<string>();
@@ -137,9 +120,6 @@ export function InventoryView() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return inventory.filter((r) => {
-      // 产出按提链分支渠道隔离
-      const ch = (r as any).channel || "";
-      if (ch && ch !== branchChannel) return false;
       if (country !== "all" && r.country !== country) return false;
       if (!q) return true;
       return (
@@ -148,9 +128,9 @@ export function InventoryView() {
         (r.country || "").toLowerCase().includes(q)
       );
     });
-  }, [inventory, search, country, branchChannel]);
+  }, [inventory, search, country]);
 
-  const shown = filtered.slice(0, 500);
+  const shown = filtered.slice(0, 1000);
   const totalPages = Math.max(1, Math.ceil(shown.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * pageSize;
@@ -164,6 +144,36 @@ export function InventoryView() {
     for (let i = start; i <= end; i++) arr.push(i);
     return arr;
   }, [currentPage, totalPages]);
+
+  const handleClearChannel = async () => {
+    if (!window.confirm(`确认清空「${BRANCH_CN[activeBranch]}」渠道 (${branchChannel}) 的成功库存 ${inventory.length} 条?`)) return;
+    setClearing(true);
+    try {
+      const r = await api("/api/tokens/inventory/clear", "POST", { channel: branchChannel });
+      pushLog(`已清空 ${branchChannel} 渠道成功库存 ${r?.deleted ?? 0} 条`, "ok");
+      setInventory([]);
+      setPage(1);
+    } catch (e) {
+      pushLog(`清空失败: ${e}`, "err");
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!window.confirm(`确认清空全部渠道的成功库存 (当前共 ${inventory.length} 条)? 此操作不可撤销!`)) return;
+    setClearing(true);
+    try {
+      const r = await api("/api/tokens/inventory/clear", "POST", { channel: "" });
+      pushLog(`已清空全部成功库存 ${r?.deleted ?? 0} 条`, "ok");
+      setInventory([]);
+      setPage(1);
+    } catch (e) {
+      pushLog(`清空失败: ${e}`, "err");
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const handleExport = () => {
     const headers = [
@@ -187,7 +197,7 @@ export function InventoryView() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `inventory_${Date.now()}.csv`;
+    a.download = `inventory_${branchChannel}_${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -198,7 +208,7 @@ export function InventoryView() {
         <div>
           <h2 className="page-title">成功账单 (BA) 库</h2>
           <p className="page-sub">
-            提链分支: {BRANCH_CN[activeBranch]} · 渠道 {branchChannel} · 共 {inventory.length} 条 · 显示 {shown.length} 条
+            提链分支: {BRANCH_CN[activeBranch]} · 渠道 {branchChannel} · 共 {inventory.length} 条
           </p>
         </div>
         <div className="page-actions">
@@ -219,7 +229,7 @@ export function InventoryView() {
           </select>
           <input
             className="input"
-            style={{ width: 220 }}
+            style={{ width: 200 }}
             placeholder="搜索 ba_id / email / country"
             value={search}
             onChange={(e) => {
@@ -244,6 +254,28 @@ export function InventoryView() {
             ))}
           </select>
           <button
+            className="btn"
+            onClick={() => fetchInventory(branchChannel)}
+            disabled={loading}
+            style={{ minWidth: 62 }}
+          >
+            {loading ? "加载中…" : "刷新"}
+          </button>
+          <button
+            className="btn btn-danger"
+            onClick={handleClearChannel}
+            disabled={clearing || inventory.length === 0}
+          >
+            清空当前渠道
+          </button>
+          <button
+            className="btn btn-danger"
+            onClick={handleClearAll}
+            disabled={clearing}
+          >
+            清空全部
+          </button>
+          <button
             className="btn btn-primary"
             onClick={handleExport}
             disabled={shown.length === 0}
@@ -267,17 +299,17 @@ export function InventoryView() {
             </tr>
           </thead>
           <tbody>
-            {loading && (
+            {loading && !loaded && (
               <tr>
                 <td colSpan={7} className="muted" style={{ textAlign: "center" }}>
                   加载中...
                 </td>
               </tr>
             )}
-            {!loading && pageItems.length === 0 && (
+            {!loading && loaded && pageItems.length === 0 && (
               <tr>
                 <td colSpan={7} className="muted" style={{ textAlign: "center" }}>
-                  暂无数据
+                  暂无数据 — 该渠道提链成功后将自动入库
                 </td>
               </tr>
             )}
@@ -289,7 +321,7 @@ export function InventoryView() {
                 <td className="mono" style={{ maxWidth: 260 }} title={r.paypal_url}>
                   {truncate(r.paypal_url, 34)}
                 </td>
-                <td className="num">{r.amount ?? "-"}</td>
+                <td className="num">{r.amount === "" || r.amount == null ? "-" : r.amount}</td>
                 <td>{r.currency || "-"}</td>
                 <td className="mono">{r.time || "-"}</td>
               </tr>

@@ -127,11 +127,11 @@ function install(win) {
     // -------------------------------------------------------------------
     const nav = win.navigator;
     // userAgentData (Chrome only)
-    if (nav && nav.userAgentData == null) {
+if (nav && nav.userAgentData == null) {
         const brands = [
-            { brand: "Not_A Brand",      version: "8" },
-            { brand: "Chromium",          version: "120" },
-            { brand: "Google Chrome",     version: "120" },
+            { brand: "Not=A?Brand",      version: "99" },
+            { brand: "Google Chrome",     version: "151" },
+            { brand: "Chromium",          version: "151" },
         ];
         try {
             Object.defineProperty(nav, "userAgentData", {
@@ -148,12 +148,16 @@ function install(win) {
                         };
                         if (Array.isArray(hints)) {
                             for (const h of hints) {
-                                if (h === "platformVersion") out.platformVersion = "15.0.0";
+                                if (h === "platformVersion") out.platformVersion = "10.0.0";
                                 else if (h === "architecture") out.architecture = "x86";
                                 else if (h === "bitness") out.bitness = "64";
                                 else if (h === "model") out.model = "";
-                                else if (h === "uaFullVersion") out.uaFullVersion = "120.0.0.0";
-                                else if (h === "fullVersionList") out.fullVersionList = brands.map(b => ({ brand: b.brand, version: b.version + ".0.0.0" }));
+                                else if (h === "uaFullVersion") out.uaFullVersion = "151.0.7922.72";
+                                else if (h === "fullVersionList") out.fullVersionList = [
+                                    { brand: "Not=A?Brand", version: "99.0.0.0" },
+                                    { brand: "Google Chrome", version: "151.0.7922.72" },
+                                    { brand: "Chromium", version: "151.0.7922.72" },
+                                ];
                                 else if (h === "wow64") out.wow64 = false;
                             }
                         }
@@ -175,7 +179,7 @@ function install(win) {
         } catch (_) {}
     }
     // hardwareConcurrency, deviceMemory, etc. — jsdom already has hardwareConcurrency
-    if (nav && nav.deviceMemory == null) {
+    if (nav && !("deviceMemory" in nav)) {
         try {
             Object.defineProperty(nav, "deviceMemory", { value: 8, configurable: true });
         } catch (_) {}
@@ -185,7 +189,7 @@ function install(win) {
             Object.defineProperty(nav, "connection", {
                 value: {
                     effectiveType: "4g",
-                    rtt: 50, downlink: 10,
+                    rtt: 100, downlink: 10,
                     saveData: false,
                     type: "wifi",
                     addEventListener() {}, removeEventListener() {},
@@ -214,8 +218,23 @@ function install(win) {
     if (nav && typeof nav.javaEnabled !== "function") {
         try { nav.javaEnabled = function () { return false; }; } catch (_) {}
     }
-    if (nav && nav.maxTouchPoints == null) {
+if (nav && nav.maxTouchPoints == null) {
         try { Object.defineProperty(nav, "maxTouchPoints", { value: 0, configurable: true }); } catch (_) {}
+    }
+    if (nav && nav.keyboard == null) {
+        try { Object.defineProperty(nav, "keyboard", { value: { getLayoutMap: () => Promise.resolve({ entries: () => new Map().entries(), get: () => undefined, has: () => false, size: 0 }) }, configurable: true }); } catch (_) {}
+    }
+    if (nav && nav.storage == null) {
+        try { Object.defineProperty(nav, "storage", { value: { estimate: () => Promise.resolve({ usage: 0, quota: 2147483648 }), persist: () => Promise.resolve(false), persisted: () => Promise.resolve(false) }, configurable: true }); } catch (_) {}
+    }
+    if (nav && nav.credentials == null) {
+        try { Object.defineProperty(nav, "credentials", { value: { get: () => Promise.resolve(null), store: () => Promise.resolve(), create: () => Promise.resolve(), preventSilentAccess: () => Promise.resolve() }, configurable: true }); } catch (_) {}
+    }
+    if (nav && nav.serial == null) {
+        try { Object.defineProperty(nav, "serial", { value: { getPorts: () => Promise.resolve([]), requestPort: () => Promise.reject(new Error('NotFoundError')) }, configurable: true }); } catch (_) {}
+    }
+    if (nav && nav.scheduling == null) {
+        try { Object.defineProperty(nav, "scheduling", { value: { isInputPending: () => false }, configurable: true }); } catch (_) {}
     }
     if (nav && nav.vendor == null) {
         try { Object.defineProperty(nav, "vendor", { value: "Google Inc.", configurable: true }); } catch (_) {}
@@ -290,7 +309,7 @@ function install(win) {
                     case 0x1F02: return "WebGL 1.0 (OpenGL ES 2.0 Chromium)";
                     case 0x8B8C: return "WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)";
                     case 0x9245: return "Google Inc. (Intel)";
-                    case 0x9246: return "ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)";
+                    case 0x9246: return "ANGLE (Intel, Intel(R) HD Graphics 530 (0x0000191B) Direct3D11 vs_5_0 ps_5_0, D3D11)";
                     case 0x0D33: return 16384;
                     case 0x8869: return 16;
                     case 0x8DFC: return 30;
@@ -380,14 +399,46 @@ function install(win) {
         return origGetContext.call(this, type, attrs);
     };
 
-    // -------------------------------------------------------------------
-    // window.matchMedia (jsdom returns a working stub but some bundles
-    // poke at .matches / .addEventListener)
+// -------------------------------------------------------------------
+    // window.matchMedia (jsdom lacks it entirely; hsw probes ~34 CSS
+    // media features plus a few device queries). Truth table mirrors the
+    // pinned headless-Chrome capture.
     // -------------------------------------------------------------------
     if (typeof win.matchMedia !== "function") {
+        const MEDIA_TRUTH = new Set([
+            "monochrome:0", "color-gamut:srgb", "any-hover:hover", "hover:hover",
+            "any-pointer:fine", "pointer:fine", "display-mode:browser",
+            "forced-colors:none", "prefers-color-scheme:light",
+            "prefers-contrast:no-preference", "prefers-reduced-motion:no-preference",
+            "prefers-reduced-transparency:no-preference",
+        ]);
+        function mediaMatches(query) {
+            let q = String(query || "").trim();
+            let negate = false;
+            if (q.startsWith("not ")) { negate = true; q = q.slice(4).trim(); }
+            const parts = q.split(/ and /).map(function (p) { return p.trim(); }).filter(Boolean);
+            let ok = parts.length > 0;
+            for (const part of parts) {
+                const m = /^\((.+)\)$/.exec(part);
+                const inner = m ? m[1].trim() : part;
+                const kv = /^([a-zA-Z-]+)\s*:\s*(.+)$/.exec(inner);
+                if (!kv) { ok = false; break; }
+                const feat = kv[1].toLowerCase();
+                const val = kv[2].trim();
+                if (feat === "device-width") { if (val !== String((win.screen && win.screen.width) || 0) + "px") ok = false; }
+                else if (feat === "device-height") { if (val !== String((win.screen && win.screen.height) || 0) + "px") ok = false; }
+                else if (feat === "-webkit-device-pixel-ratio") { if (parseFloat(val) !== (win.devicePixelRatio || 1)) ok = false; }
+                else if (feat === "resolution") { if (parseFloat(val) !== (win.devicePixelRatio || 1)) ok = false; }
+                else if (feat === "-moz-device-pixel-ratio") { ok = false; }
+                else if (!MEDIA_TRUTH.has(feat + ":" + val)) ok = false;
+                if (!ok) break;
+            }
+            return negate ? !ok : ok;
+        }
         win.matchMedia = function (q) {
+            const matches = mediaMatches(q);
             return {
-                media: q, matches: false, onchange: null,
+                media: q, matches, onchange: null,
                 addListener() {}, removeListener() {},
                 addEventListener() {}, removeEventListener() {},
                 dispatchEvent() { return false; },
@@ -433,13 +484,27 @@ function install(win) {
     // -------------------------------------------------------------------
     if (typeof win.chrome === "undefined") {
         win.chrome = {
-            app: { isInstalled: false, InstallState: { DISABLED: "disabled" }, RunningState: { RUNNING: "running" } },
-            runtime: {
-                OnInstalledReason: {}, OnRestartRequiredReason: {},
-                PlatformArch: {}, PlatformNaclArch: {}, PlatformOs: {}, RequestUpdateCheckStatus: {},
-            },
-            csi: function () { return {}; },
             loadTimes: function () { return {}; },
+            csi: function () { return {}; },
+            app: { isInstalled: false, InstallState: { DISABLED: "disabled" }, RunningState: { RUNNING: "running" } },
+        };
+    }
+
+    // -------------------------------------------------------------------
+    // window.CSS (jsdom lacks it; aJG-gated fingerprint paths probe
+    // CSS.supports). Match Chrome 146 behaviour: any well-formed
+    // "property: value" declaration is supported.
+    // -------------------------------------------------------------------
+    if (typeof win.CSS === "undefined") {
+        win.CSS = {
+            escape(s) {
+                return String(s).replace(/[^a-zA-Z0-9_-]/g, function (c) { return "\\" + c; });
+            },
+            supports(cond) {
+                if (typeof cond !== "string") return false;
+                const m = /^\s*([a-zA-Z-]+)\s*:/.exec(cond);
+                return !!m && !/[(){}]/.test(cond);
+            },
         };
     }
 
@@ -498,14 +563,11 @@ function install(win) {
         } catch (_) {}
     }
 
+// -------------------------------------------------------------------
+    // document.referrer stays '' (about:blank navigation) so hsw's
+    // aDR(document.referrer) returns null and that collector payload is
+    // omitted, matching headless Chrome.
     // -------------------------------------------------------------------
-    // document.referrer (jsdom has it but make sure not empty)
-    // -------------------------------------------------------------------
-    try {
-        if (doc && !doc.referrer) {
-            Object.defineProperty(doc, "referrer", { value: "https://example.com/", configurable: true });
-        }
-    } catch (_) {}
 
     // -------------------------------------------------------------------
     // window.outerWidth / outerHeight / inner sizes
@@ -516,6 +578,136 @@ function install(win) {
         if (!win.innerWidth) Object.defineProperty(win, "innerWidth", { value: 1920, configurable: true });
         if (!win.innerHeight) Object.defineProperty(win, "innerHeight", { value: 947, configurable: true });
         if (!win.devicePixelRatio) Object.defineProperty(win, "devicePixelRatio", { value: 1, configurable: true });
+    } catch (_) {}
+
+// -------------------------------------------------------------------
+    // Media capability probes — hsw's media-fingerprint collector calls
+    // canPlayType / MediaSource.isTypeSupported / MediaRecorder.isTypeSupported.
+    // -------------------------------------------------------------------
+    const MEDIA_PLAY = {
+        'audio/ogg; codecs="vorbis"': "probably",
+        "audio/mpeg": "probably",
+        "audio/mpegurl": "maybe",
+        'audio/wav; codecs="1"': "probably",
+        "audio/x-m4a": "maybe",
+        "audio/aac": "probably",
+        'video/ogg; codecs="theora"': "",
+        "video/quicktime": "",
+        'video/mp4; codecs="avc1.42E01E"': "probably",
+        'video/webm; codecs="vp8"': "probably",
+        'video/webm; codecs="vp9"': "probably",
+        "video/x-matroska": "maybe",
+    };
+    const MS_SUPPORT = new Set(["audio/mpeg", "audio/aac", 'video/mp4; codecs="avc1.42E01E"', 'video/webm; codecs="vp8"', 'video/webm; codecs="vp9"']);
+    const MR_SUPPORT = new Set(['video/mp4; codecs="avc1.42E01E"', 'video/webm; codecs="vp8"', 'video/webm; codecs="vp9"', "video/x-matroska"]);
+    try {
+        if (win.HTMLMediaElement) {
+            win.HTMLMediaElement.prototype.canPlayType = function (type) {
+                return Object.prototype.hasOwnProperty.call(MEDIA_PLAY, type) ? MEDIA_PLAY[type] : "";
+            };
+        }
+        if (win.HTMLVideoElement && typeof win.HTMLVideoElement.prototype.getVideoPlaybackQuality !== "function") {
+            win.HTMLVideoElement.prototype.getVideoPlaybackQuality = function () {
+                return { creationTime: 0, totalVideoFrames: 0, droppedVideoFrames: 0, corruptedVideoFrames: 0 };
+            };
+        }
+    } catch (_) {}
+    if (!("MediaSource" in win)) {
+        win.MediaSource = function MediaSource() {};
+        win.MediaSource.isTypeSupported = function (type) { return MS_SUPPORT.has(type); };
+    }
+    if (!("MediaRecorder" in win)) {
+        win.MediaRecorder = function MediaRecorder() {};
+        win.MediaRecorder.isTypeSupported = function (type) { return MR_SUPPORT.has(type); };
+    }
+
+    // -------------------------------------------------------------------
+    // Window-global feature stubs — match Chrome 146 truth for the aJG
+    // boolean vector and the 821166329 window-walk.
+    // -------------------------------------------------------------------
+    if (!("SharedWorker" in win)) win.SharedWorker = function SharedWorker() {};
+    if (!("VisualViewport" in win)) win.VisualViewport = function VisualViewport() {};
+    if (!("ReportingObserver" in win)) win.ReportingObserver = function ReportingObserver() {};
+    if (!("RTCRtpTransceiver" in win)) win.RTCRtpTransceiver = function RTCRtpTransceiver() {};
+    // Hide randomUUID from Crypto.prototype (Chrome 146 F) without breaking webcrypto
+    try { win.Crypto = function Crypto() {}; } catch (_) {}
+    // jsdom exposes ontouchstart on window — desktop Chrome F
+    try { delete win.ontouchstart; } catch (_) {}
+    try { if ("clientInformation" in win === false) Object.defineProperty(win, "clientInformation", { value: win.navigator, configurable: true }); } catch (_) {}
+    try {
+        const _prompt = win.prompt;
+        Object.defineProperty(win, "prompt", { value: function prompt() { return typeof _prompt === "function" ? _prompt.apply(this, arguments) : undefined; }, configurable: true });
+        Object.defineProperty(win.prompt, "toString", { value: function () { return "function prompt() { [native code] }"; }, configurable: true });
+    } catch (_) {}
+    try {
+        const _close = win.close;
+        Object.defineProperty(win, "close", { value: function close() { return typeof _close === "function" ? _close.apply(this, arguments) : undefined; }, configurable: true });
+        Object.defineProperty(win.close, "toString", { value: function () { return "function close() { [native code] }"; }, configurable: true });
+    } catch (_) {}
+
+    // -------------------------------------------------------------------
+    // hsw's 2435948857 collector probes dozens of APIs via
+    // Object.getOwnPropertyDescriptor(Ctor.prototype, name) + a
+    // "function x() { [native code] }" toString pattern check. Chrome
+    // reports zero tampered entries; jsdom's JS-implemented accessors /
+    // methods trip it. Normalize:
+    //   1) move Navigator/Screen prototype accessors onto the instance
+    //      (Chrome keeps them off the prototype), and
+    //   2) wrap canvas helpers as concise methods (no .prototype) with a
+    //      native-looking toString whitelist.
+    // -------------------------------------------------------------------
+    try {
+        const moveToInstance = (proto, inst, props) => {
+            if (!proto || !inst) return;
+            for (const p of props) {
+                try {
+                    if (!Object.getOwnPropertyDescriptor(proto, p)) continue;
+                    const d = Object.getOwnPropertyDescriptor(proto, p);
+                    if (!Object.getOwnPropertyDescriptor(inst, p)) {
+                        Object.defineProperty(inst, p, d);
+                    }
+                    delete proto[p];
+                } catch (_) {}
+            }
+        };
+        moveToInstance(win.Navigator && win.Navigator.prototype, win.navigator, [
+            "userAgent", "language", "languages", "platform", "vendor", "webdriver",
+            "deviceMemory", "hardwareConcurrency", "maxTouchPoints", "pdfViewerEnabled",
+            "appVersion", "oscpu", "connection", "mimeTypes", "plugins", "keyboard",
+            "mediaDevices", "storage", "permissions", "credentials", "serial",
+        ]);
+        moveToInstance(win.Screen && win.Screen.prototype, win.screen, [
+            "width", "height", "availWidth", "availHeight", "colorDepth", "pixelDepth",
+        ]);
+        const nativeToString = (f, name) => {
+            try {
+                if (typeof f === "function" && !Object.prototype.hasOwnProperty.call(f, "toString")) {
+                    Object.defineProperty(f, "toString", {
+                        value: () => "function " + (name || f.name || "") + "() { [native code] }",
+                        configurable: true,
+                    });
+                }
+            } catch (_) {}
+        };
+        const wrapNoProto = (proto, p) => {
+            if (!proto) return;
+            try {
+                const d = Object.getOwnPropertyDescriptor(proto, p);
+                if (!d || typeof d.value !== "function") return;
+                if (String(d.value).indexOf("[native code]") !== -1) return;
+                const fn = d.value;
+                const wrapped = { [p](...args) { return fn.apply(this, args); } }[p];
+                nativeToString(wrapped, p);
+                Object.defineProperty(proto, p, { value: wrapped, writable: true, configurable: true });
+            } catch (_) {}
+        };
+        wrapNoProto(win.HTMLCanvasElement && win.HTMLCanvasElement.prototype, "getContext");
+        wrapNoProto(win.HTMLCanvasElement && win.HTMLCanvasElement.prototype, "toDataURL");
+        wrapNoProto(win.HTMLCanvasElement && win.HTMLCanvasElement.prototype, "getImageData");
+        nativeToString(win.Element && win.Element.prototype && win.Element.prototype.getClientRects, "getClientRects");
+        nativeToString(win.TextEncoder && win.TextEncoder.prototype && win.TextEncoder.prototype.encode, "encode");
+        nativeToString(win.TextDecoder && win.TextDecoder.prototype && win.TextDecoder.prototype.decode, "decode");
+        nativeToString(win.Performance && win.Performance.prototype && win.Performance.prototype.now, "now");
     } catch (_) {}
 
     // -------------------------------------------------------------------

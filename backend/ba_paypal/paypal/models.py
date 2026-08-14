@@ -18,6 +18,17 @@ class UserInfo:
     password: str
     dob: str  # DD/MM/YYYY
     cpf: str  # XXX.XXX.XXX-XX
+    # 国家化扩展字段 (默认 None/空, 向后兼容)
+    identity_document_type: str = ""
+    identity_document_number: str = ""
+    nationality: str = ""
+    middle_name: str = ""
+    kana_first: str = ""
+    kana_last: str = ""
+    crs_data: dict | None = None
+    occupation: str = ""
+    gender: str = ""
+    place_of_birth: str = ""
 
 
 @dataclass
@@ -26,6 +37,8 @@ class CardInfo:
     expiry: str  # MM/YYYY
     cvv: str
     card_type: str = "CREDIT"
+    issuer: str = "VISA"
+    bin: str = ""
 
 
 @dataclass
@@ -64,6 +77,7 @@ class SessionState:
     content_manifest_url: str = ""
     content_manifest_key: str = ""
     signup_url: str = ""
+    signup_context_ready: bool = False
     paypal_captcha_solved: bool = False
     show_create_account_action_id: str = ""
     create_user_action_id: str = ""
@@ -312,19 +326,33 @@ def _generate_br_email(first_name: str, last_name: str) -> str:
     )
 
 
-def generate_card(proxy_url: str | None = None) -> CardInfo:
+def generate_card(
+    proxy_url: str | None = None,
+    country: str = "BR",
+    product_class_hint: str | None = None,
+    used_bins: set | None = None,
+) -> CardInfo:
+    """国家化卡生成: 按国家 BIN 池选号 (未收录回退 US), Luhn 校验位, CVV 长度随 issuer。
+
+    旧签名 `generate_card(proxy_url=...)` 保留 (默认 country="BR")。
+    """
     del proxy_url
-    bin_prefix, length, _issuer = random.choice(_BR_CARD_BINS)
-    middle_len = length - len(bin_prefix) - 1
-    partial = bin_prefix + "".join(str(random.randint(0, 9)) for _ in range(middle_len))
-    number = partial + str(_luhn_checksum(partial))
+    if used_bins is None:
+        used_bins = None
+    from paypal.identity_lib import generate_country_card, issuer_type_for
 
-    month = random.randint(1, 12)
-    year = time.localtime().tm_year + random.randint(2, 5)
-    expiry = f"{month:02d}/{year}"
-    cvv = f"{random.randint(100, 999)}"
-
-    return CardInfo(number=number, expiry=expiry, cvv=cvv, card_type="CREDIT")
+    card = generate_country_card(country, used_bins)
+    card_type = card["product_class"]
+    if product_class_hint in {"CREDIT", "DEBIT"}:
+        card_type = product_class_hint
+    return CardInfo(
+        number=card["number"],
+        expiry=card["expiry"],
+        cvv=card["cvv"],
+        card_type=card_type,
+        issuer=issuer_type_for(card["number"]),
+        bin=card["bin"],
+    )
 
 
 def generate_cpf() -> str:
@@ -363,29 +391,117 @@ def generate_password() -> str:
     return "".join(pwd)
 
 
-def generate_user(phone: str) -> UserInfo:
+def generate_user(phone: str = "", country: str = "BR") -> UserInfo:
+    """国家化身份生成。
+
+    country != BR: 委托 identity_lib (姓名/邮箱/生日/证件/地址/电话全国家化)。
+    country == BR: 保留原巴西路径 (向后兼容)。
+    """
+    cc = (country or "BR").strip().upper()
+    if cc != "BR":
+        from paypal.identity_lib import get_country_profile
+
+        ident = get_country_profile(cc)
+        phone_full = _normalize_phone_full(phone or ident.phone_number or "", ident.phone_country)
+        phone_local, phone_cc = _split_phone(phone_full, ident.phone_country)
+        return UserInfo(
+            first_name=ident.first_name,
+            last_name=ident.last_name,
+            email=ident.email,
+            phone=phone_full,
+            phone_local=phone_local,
+            phone_country_code=phone_cc,
+            password=ident.password,
+            dob=ident.dob,
+            cpf=ident.identity_document_number or "",
+            identity_document_type=ident.identity_document_type,
+            identity_document_number=ident.identity_document_number,
+            nationality=ident.nationality,
+            middle_name=ident.middle_name,
+            kana_first=ident.kana_first,
+            kana_last=ident.kana_last,
+        )
+
+    phone_full = _normalize_phone_full(phone, "+55")
+    phone_local, phone_cc = _split_phone(phone_full, "+55")
     first = random.choice(_BR_FIRST_NAMES)
     last = random.choice(_BR_LAST_NAMES)
-
-    phone_local = phone.lstrip("+")
-    phone_country_code = "+55"
-    if phone_local.startswith("55"):
-        phone_local = phone_local[2:]
-
     return UserInfo(
         first_name=first,
         last_name=last,
-        email=_generate_br_email(first, last),
-        phone=phone,
+        email=generate_random_email(),
+        phone=phone_full,
         phone_local=phone_local,
-        phone_country_code=phone_country_code,
+        phone_country_code=phone_cc,
         password=generate_password(),
         dob=generate_dob(),
         cpf=generate_cpf(),
+        nationality="BR",
     )
 
 
-def generate_address() -> BillingAddress:
+def _normalize_phone_full(phone: str, default_cc: str) -> str:
+    """把任意格式手机号归一到 +CC 开头完整号码。
+
+    空值: 生成合成本国号码 (接码激活后会由 _update_user_phone 替换, 不落真号);
+    显式非法值: 抛错。
+    """
+    phone = str(phone or "").strip()
+    if not phone:
+        return _synthetic_phone(default_cc)
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if not digits:
+        raise ValueError(f"invalid phone: {phone!r}")
+    if phone.startswith("+"):
+        return f"+{digits}"
+    return f"{default_cc}{digits}"
+
+
+def _synthetic_phone(cc_prefix: str) -> str:
+    """合成一个"本地结构真实但非真实号码"的占位号 (后续被接码号覆盖)。"""
+    try:
+        from paypal.identity_lib import _generate_national_phone
+        local = _generate_national_phone(str(cc_prefix).lstrip("+"))
+    except Exception:
+        local = "9" + "".join(str(random.randint(0, 9)) for _ in range(9))
+    return f"+{str(cc_prefix).lstrip('+')}{local}"
+
+
+def _split_phone(phone_full: str, default_cc: str) -> tuple[str, str]:
+    digits = "".join(ch for ch in phone_full if ch.isdigit())
+    cc = str(default_cc or "+1").lstrip("+")
+    local = digits
+    if digits.startswith(cc) and len(digits) > len(cc) + 2:
+        local = digits[len(cc):]
+    return local, f"+{cc}"
+
+
+def generate_address(country: str = "BR") -> BillingAddress:
+    """国家化账单地址。country != BR 委托 identity_lib 地址池 (line2 语义按国)。"""
+    cc = (country or "BR").strip().upper()
+    if cc != "BR":
+        from paypal.identity_lib import generate_country_address
+
+        addr = generate_country_address(cc)
+        line1 = addr.get("line1") or ""
+        line2 = addr.get("line2") or ""
+        # line1 内嵌门牌号 (如 "Av Paulista 1000") 时分出行号字段
+        house_number = ""
+        street = line1
+        parts = line1.rsplit(" ", 1)
+        house_number = str(addr.get("house_number") or "")
+        if len(parts) == 2 and parts[1].isdigit():
+            street, house_number = parts
+        return BillingAddress(
+            street=street,
+            house_number=house_number,
+            district=line2,
+            city=addr.get("city") or "",
+            state=addr.get("state") or "",
+            postal_code=addr.get("postal_code") or "",
+            country=cc,
+        )
+
     location = random.choice(_BR_LOCATIONS)
     state = location["state"]
     city = location["city"]

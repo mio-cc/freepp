@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -113,12 +114,18 @@ def _digits(value: object) -> str:
 
 
 def normalize_brazil_phone(value: object) -> str:
+    return normalize_phone(value, "+55")
+
+
+def normalize_phone(value: object, cc: str = "+55") -> str:
+    """按国家码归一回填 +CC 前缀 (cc 如 "+66" / "+1")。"""
     digits = _digits(value)
     if not digits:
         raise SMSBowerApiError("SMSBower returned an empty phone number")
-    if digits.startswith("55"):
+    cc_digits = str(cc or "+55").lstrip("+")
+    if digits.startswith(cc_digits):
         return f"+{digits}"
-    return f"+55{digits}"
+    return f"+{cc_digits}{digits}"
 
 
 def _parse_float(value: object, default: float = 0.0) -> float:
@@ -367,6 +374,8 @@ class SMSBowerOtpProvider:
         store: SMSBowerActivationStore | None = None,
         service: str = SMSBOWER_DEFAULT_SERVICE,
         country: str = SMSBOWER_DEFAULT_COUNTRY,
+        phone_cc: str = "+55",
+        max_price: float | None = None,
         wait_seconds: float = SMSBOWER_DEFAULT_WAIT_SECONDS,
         poll_interval_seconds: float = SMSBOWER_DEFAULT_POLL_INTERVAL_SECONDS,
         max_channel_failures: int = SMSBOWER_DEFAULT_MAX_CHANNEL_FAILURES,
@@ -377,6 +386,8 @@ class SMSBowerOtpProvider:
         self.store = store or SMSBowerActivationStore()
         self.service = service
         self.country = country
+        self.phone_cc = str(phone_cc or "+55")
+        self.max_price = float(max_price) if max_price else None
         self.wait_seconds = max(1.0, float(wait_seconds)) if wait_seconds >= 1 else float(wait_seconds)
         self.poll_interval_seconds = max(0.01, float(poll_interval_seconds))
         self.max_channel_failures = max(1, int(max_channel_failures))
@@ -394,24 +405,31 @@ class SMSBowerOtpProvider:
     def _purchase_new_number(self) -> SMSBowerActivation:
         prices = self._get_provider_prices()
         if not prices:
-            raise SMSBowerApiError("SMSBower has no PayPal Brazil providers with available numbers")
+            raise SMSBowerApiError(f"SMSBower has no PayPal {self.phone_cc} providers with available numbers")
         last_error: Exception | None = None
         for price in prices:
             if self.store.provider_failure_count(price.provider_id) >= self.max_channel_failures:
                 logger.info("Skipping SMSBower provider {} after repeated failures", price.provider_id)
                 continue
+            if self.max_price is not None and price.price > self.max_price:
+                logger.info(
+                    "Skipping SMSBower provider {} price={} over budget={}",
+                    price.provider_id, price.price, self.max_price,
+                )
+                continue
             try:
                 data = self._get_number_v2(price)
                 activation = SMSBowerActivation(
                     activation_id=str(data["activationId"]),
-                    phone_number=normalize_brazil_phone(data["phoneNumber"]),
+                    phone_number=normalize_phone(data["phoneNumber"], self.phone_cc),
                     provider_id=str(data.get("activationOperator") or data.get("provider_id") or price.provider_id),
                     price=_parse_float(data.get("activationCost"), price.price),
                     expires_at=time.time() + self.activation_ttl_seconds,
                     reused=False,
                 )
                 logger.info(
-                    "Reserved SMSBower PayPal Brazil number provider={} price={}",
+                    "Reserved SMSBower PayPal {} number provider={} price={}",
+                    self.phone_cc,
                     activation.provider_id,
                     activation.price,
                 )
@@ -421,7 +439,9 @@ class SMSBowerOtpProvider:
                 self.store.record_failure(price.provider_id)
                 logger.warning("SMSBower provider {} failed: {}", price.provider_id, exc)
         if last_error is not None:
-            raise SMSBowerApiError(f"SMSBower could not reserve a PayPal Brazil number: {last_error}") from last_error
+            raise SMSBowerApiError(
+                f"SMSBower could not reserve a PayPal {self.phone_cc} number: {last_error}"
+            ) from last_error
         raise SMSBowerApiError("SMSBower providers are all blocked by failure thresholds")
 
     def mark_sms_sent(self, activation: SMSBowerActivation) -> None:
@@ -529,7 +549,15 @@ def smsbower_enabled(explicit: bool | None = None) -> bool:
     return _env_bool("PAYPAL_SMSBOWER_ENABLED") or _env_bool("SMSBOWER_ENABLED")
 
 
-def build_smsbower_provider(*, enabled: bool | None = None, api_key: str | None = None) -> SMSBowerOtpProvider | None:
+def build_smsbower_provider(
+    *,
+    enabled: bool | None = None,
+    api_key: str | None = None,
+    country: str = SMSBOWER_DEFAULT_COUNTRY,
+    phone_cc: str = "+55",
+    max_price: float | None = None,
+    service: str = SMSBOWER_DEFAULT_SERVICE,
+) -> SMSBowerOtpProvider | None:
     if not smsbower_enabled(enabled):
         return None
     resolved_key = (
@@ -540,6 +568,10 @@ def build_smsbower_provider(*, enabled: bool | None = None, api_key: str | None 
     client = SMSBowerClient(resolved_key)
     return SMSBowerOtpProvider(
         client=client,
+        country=country,
+        phone_cc=phone_cc,
+        max_price=max_price,
+        service=service,
         wait_seconds=_env_float("SMSBOWER_WAIT_SECONDS", SMSBOWER_DEFAULT_WAIT_SECONDS, 1.0, 300.0),
         poll_interval_seconds=_env_float(
             "SMSBOWER_POLL_INTERVAL_SECONDS",
@@ -561,6 +593,71 @@ def build_smsbower_provider(*, enabled: bool | None = None, api_key: str | None 
         ),
         max_attempts=_env_int("SMSBOWER_MAX_ATTEMPTS", SMSBOWER_DEFAULT_MAX_ATTEMPTS, 1, 100),
     )
+
+
+# ---- 报价查询 (只读, TTL 缓存; 批量同国只打一次 smsbower) ----
+
+QUOTE_TTL_SECONDS = 60.0
+_QUOTE_LOCK = threading.Lock()
+_quote_cache: dict[str, tuple[float, list[dict[str, object]]]] = {}
+_SERVICE_FALLBACKS = ("ts", "pp")
+_SUPPORTED_SERVICES: set[str] = set(_SERVICE_FALLBACKS)
+
+
+def _quote_key(sms_country_id: str, service: str) -> str:
+    return f"{sms_country_id}|{service.lower()}"
+
+
+def _resolve_sms_country_id(country: str) -> str:
+    from paypal.country_profile import smsbower_country_id
+
+    return smsbower_country_id(country)
+
+
+def build_provider_for_quote(country: str, service: str | None = None) -> list[dict[str, object]]:
+    """返回某国最低价可用供应商列表 (quote API 用途, 只读不激活)。"""
+
+    sms_id = _resolve_sms_country_id(country)
+    services = [service] if service and service.lower() in _SUPPORTED_SERVICES else list(_SERVICE_FALLBACKS)
+
+    resolved_key = (
+        _load_dotenv_value("SMSBOWER_API_KEY")
+        or _load_dotenv_value("PAYPAL_SMSBOWER_API_KEY")
+    )
+    if not resolved_key:
+        return []
+
+    with _QUOTE_LOCK:
+        key = _quote_key(sms_id, services[0])
+        hit = _quote_cache.get(key)
+        if hit and hit[0] > time.time():
+            return list(hit[1])
+
+    client = SMSBowerClient(resolved_key)
+    quotes: list[dict[str, object]] = []
+    last_error: Exception | None = None
+    for svc in services:
+        try:
+            prices = client.get_provider_prices(svc, sms_id)
+        except Exception as exc:
+            last_error = exc
+            continue
+        for price in prices:
+            quotes.append({
+                "provider_id": price.provider_id,
+                "price": price.price,
+                "count": price.count,
+                "currency": "USD",
+                "service": svc,
+            })
+        if quotes:
+            break
+    quotes.sort(key=lambda item: (float(item.get("price") or 0), str(item.get("provider_id") or "")))
+    with _QUOTE_LOCK:
+        _quote_cache[key] = (time.time() + QUOTE_TTL_SECONDS, list(quotes))
+    if not quotes and last_error is not None:
+        logger.warning("sms quote failed for country={} sms_id={}: {}", country, sms_id, last_error)
+    return quotes
 
 
 def activation_to_public_dict(activation: SMSBowerActivation) -> dict[str, object]:

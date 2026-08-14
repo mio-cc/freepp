@@ -61,6 +61,10 @@ async def samples(success: str | None = None, limit: int = 100):
             "country": r.get("country", ""),
             "stage_reached": r.get("stage_reached", ""),
             "chain_id": r.get("chain_id", ""),
+            "actual_country": r.get("actual_country", ""),
+            "requested_country": r.get("requested_country", ""),
+            "exit_ip": r.get("exit_ip", ""),
+            "geo_confidence": r.get("geo_confidence", 0.0),
         })
     return {"ok": True, "samples": out, "total": len(out)}
 

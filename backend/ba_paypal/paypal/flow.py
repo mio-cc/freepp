@@ -70,6 +70,8 @@ from paypal.analytics import (
     send_datadog_rum_action,
 )
 from paypal.graphql import (
+    BUYER_CONTEXT_QUERY,
+    BUYER_FUNDING_CONTEXT_QUERY,
     CHECKOUT_SESSION_DATA_QUERY,
     GRIFFIN_METADATA_QUERY,
     SUPPORTED_FUNDING_SOURCES_QUERY,
@@ -133,6 +135,10 @@ class SmsOtpProviderProtocol(Protocol):
 
 
 class PayPalFlow:
+    # Strict buyer-context gate: when enabled (IdentityElevationPayPalFlow),
+    # phase 4 refuses to authorize unless the member buyer context was synced.
+    _strict_buyer_context = False
+
     def __init__(
         self,
         ba_token: str,
@@ -152,6 +158,7 @@ class PayPalFlow:
         mtr_runtime: str | None = None,
         risk_signals_mode: str | None = None,
         sms_provider: SmsOtpProviderProtocol | None = None,
+        country_context: Any | None = None,
     ):
         self.ba_token = ba_token
         self.user = user
@@ -159,6 +166,10 @@ class PayPalFlow:
             self.user.email = generate_random_email()
         self.card = card
         self.address = address
+        self.country_context = country_context
+        self._used_card_bins: set[str] = set()
+        if self.card.bin:
+            self._used_card_bins.add(self.card.bin)
         self.max_card_attempts = max(1, max_card_attempts)
         self.max_flow_attempts = max(1, max_flow_attempts)
         self.max_authorize_attempts = max(1, max_authorize_attempts)
@@ -183,6 +194,16 @@ class PayPalFlow:
             roxy_proxy_url=self.proxy_config.url or "",
             keep_roxy_browser=keep_roxy_browser,
         )
+        if self.country_context is not None:
+            try:
+                from paypal.country_profile import apply_profile_overrides
+
+                self.state.browser_profile = apply_profile_overrides(
+                    dict(self.state.browser_profile or {}),
+                    self.country_context,
+                )
+            except Exception:
+                pass
         self.session = PayPalSession(
             self.state,
             proxy_url=self.proxy_config.url,
@@ -318,6 +339,22 @@ class PayPalFlow:
 
     def _profile_country(self) -> str:
         return str((self.state.browser_profile or {}).get("country") or self.address.country or "BR")
+
+    def _context_country(self) -> str:
+        """授权段国家上下文 (唯一事实源); 无上下文时回退 address/BR。"""
+        if self.country_context is not None:
+            return str(getattr(self.country_context, "country", "") or "").upper()
+        return str(self.address.country or "BR").upper()
+
+    def _context_lang(self) -> str:
+        if self.country_context is not None:
+            return str(getattr(self.country_context, "lang", "") or "pt").lower()
+        return "pt"
+
+    def _context_kyc_fields(self) -> set[str]:
+        if self.country_context is not None:
+            return {str(f) for f in (getattr(self.country_context, "kyc_fields", None) or [])}
+        return set()
 
     def _profile_locale(self) -> str:
         return str((self.state.browser_profile or {}).get("locale") or "pt_BR")
@@ -2216,8 +2253,14 @@ class PayPalFlow:
         except Exception:
             pass
 
-        self.user = generate_user(current_phone)
-        self.card = generate_card(proxy_url=self.proxy_config.url)
+        self.user = generate_user(current_phone, country=self._context_country())
+        self.card = generate_card(
+            proxy_url=self.proxy_config.url,
+            country=self._context_country(),
+            used_bins=self._used_card_bins,
+        )
+        if self.card.bin:
+            self._used_card_bins.add(self.card.bin)
         self.address = current_address
         self.state = SessionState(ba_token=self.ba_token)
         ensure_runtime_profile(
@@ -3928,8 +3971,12 @@ class PayPalFlow:
             logger.info("hcaptchapassive: using pre-supplied backend token len={}", len(manual))
             return manual, {"source": "env"}
 
-        helper_candidates = [
+        helper_override = (os.getenv("PAYPAL_HCAPTCHA_NODE_HELPER") or "").strip()
+        helper_candidates = ([Path(helper_override)] if helper_override else [])
+        helper_candidates += [
             Path(__file__).resolve().parents[1] / "tools" / "hcaptcha_passive_node.js",
+            Path(__file__).resolve().parents[1] / "ba_fp_helpers" / "hcaptcha_passive_node.js",
+            Path(__file__).resolve().parents[1] / "ba_fp_helpers" / "ba_hcaptcha_passive_node.js",
             Path(__file__).with_name("hcaptcha_passive_node.js"),
             Path("/home/nonewhite/Downloads/gpt-plus-pp/botcore/paypal_plus/hcaptcha_passive_node.js"),
         ]
@@ -3947,6 +3994,7 @@ class PayPalFlow:
             "viewport": self.state.viewport or {},
             "acceptLanguage": self._browser_headers().get("Accept-Language", ""),
             "timeoutMs": int(max(15, timeout) * 1000),
+            "proxy": self.proxy_config.url or "",
         }
         env = os.environ.copy()
         node_paths = [
@@ -4314,6 +4362,8 @@ class PayPalFlow:
             r'\bgrcV3EntSiteKey["\']?\s*[:=]\s*["\']([A-Za-z0-9_-]{20,})',
             r'\bsitekey["\']?\s*[:=]\s*["\']([A-Za-z0-9_-]{20,})',
             r'recaptcha/(?:enterprise|api2)/anchor[^"\']*[?&]k=([A-Za-z0-9_-]{20,})',
+            # PayPalObjects 托管的 v2 页面: recaptcha_v2.html?siteKey=...
+            r'recaptcha[^"\'\s<>]*[?&]site[Kk]ey=([A-Za-z0-9_-]{20,})',
         ):
             m = re.search(pattern, challenge_html or "", re.I)
             if m:
@@ -4334,8 +4384,39 @@ class PayPalFlow:
         challenge_html: str,
         signup_url: str,
     ) -> tuple[str, dict[str, Any]]:
-        _ = (challenge_html, signup_url)
-        logger.warning("CapSolver reCAPTCHA v3 support has been removed; skipping external solver.")
+        """本地 Playwright reCAPTCHA 解法 (替代已移除的 CapSolver)。
+
+        优先打开真实 challenge 页 (带协议会话 cookies) 让 widget 自解;
+        失败则退 bridge (v3 execute)。返回 (token, solution)。
+        """
+        from paypal.recaptcha_solver import solve_recaptcha
+
+        site_key = self._extract_recaptcha_site_key(challenge_html)
+        action = self._extract_recaptcha_action(challenge_html)
+        if not site_key:
+            logger.warning("recaptcha site_key 提取失败, 无法本地求解")
+            return "", {}
+        cookies = []
+        try:
+            cookies = self.session.export_cookies_for_browser()
+        except Exception as e:
+            logger.debug("recaptcha cookie export failed: {}", e)
+        proxy = str(getattr(self.session, "proxy_url", "") or "")
+        env_headless = os.getenv("PAYPAL_RECAPTCHA_HEADLESS", "1").strip().lower() not in {"0", "false", "no"}
+        token = solve_recaptcha(
+            challenge_html=challenge_html,
+            site_key=site_key,
+            action=action,
+            page_url=signup_url,
+            cookies=cookies,
+            proxy=proxy,
+            headless=env_headless,
+            timeout_ms=120000,
+        )
+        if token:
+            logger.info("recaptcha local solve OK token_len={}", len(token))
+            return token, {}
+        logger.warning("recaptcha local solve 失败 (site_key={} action={})", site_key[:16], action)
         return "", {}
 
     def _validate_paypal_recaptcha_v3(self, challenge_html: str, signup_url: str) -> bool:
@@ -4717,12 +4798,53 @@ class PayPalFlow:
         return False
 
     def _validate_authchallenge_if_possible(self, challenge_html: str, signup_url: str):
+        dump_path = os.environ.get("BA_DUMP_CHALLENGE", "").strip()
+        if not dump_path:
+            dump_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                "_authchallenge_dump.html",
+            )
+        if os.environ.get("BA_DUMP_CHALLENGE_ENABLED", "1") != "0":
+            try:
+                with open(dump_path, "w", encoding="utf-8") as _dump_f:
+                    _dump_f.write(challenge_html or "")
+                logger.info("Authchallenge HTML dumped to {}", dump_path)
+            except Exception as _dump_e:
+                logger.warning("Authchallenge HTML dump failed: {}", _dump_e)
         captcha_type = self._authchallenge_captcha_type(challenge_html)
         self._send_authchallenge_datadog_rum(
             signup_url or getattr(self.state, "signup_url", "") or "https://www.paypal.com/auth/validatecaptcha",
             f"authchallenge_{captcha_type or 'unknown'}",
         )
         self.captcha_bypass_mode = paypal_captcha_bypass_mode()
+        if "recaptcha" in captcha_type and os.getenv("PAYPAL_RECAPTCHA_SOLVER_ENABLED", "1") != "0":
+            try:
+                from paypal.recaptcha_solver import solve_recaptcha_from_html
+
+                token = solve_recaptcha_from_html(
+                    challenge_html=challenge_html,
+                    proxy=getattr(self.proxy_config, "url", "") or "",
+                )
+                if token:
+                    logger.info(
+                        "reCAPTCHA Enterprise token minted (pure HTTP) len={}",
+                        len(token),
+                    )
+                    close_result = self._post_authchallenge_form_close_once(
+                        challenge_html=challenge_html,
+                        signup_url=signup_url,
+                        challenge_token=token,
+                    )
+                    if isinstance(close_result, (dict, list)) and close_result:
+                        logger.info("Authchallenge form close produced JSON via recaptcha token")
+                        return close_result
+                    if close_result:
+                        logger.info("Authchallenge close/validation completed via recaptcha token")
+                        return True
+                else:
+                    logger.warning("reCAPTCHA solver produced no token")
+            except Exception as e:
+                logger.warning("reCAPTCHA solver failed: {}", e)
         if self.captcha_bypass_mode == CAPTCHA_FRONTEND_DISABLE_MODE:
             return self._frontend_disable_authchallenge_close(challenge_html, signup_url)
         logger.warning(
@@ -4784,6 +4906,9 @@ class PayPalFlow:
         else:
             # Generic fallback mirrors authchallenge.js' default token field.
             fields["recaptcha"] = challenge_token
+            # PayPal recaptcha_v2.html 浏览器填入 g-recaptcha-response; 双写保险
+            fields["g-recaptcha-response"] = challenge_token
+            fields.setdefault("grc_eval_start_time_utc", str(now))
 
         csrf = fields.get("_csrf") or self._html_attr_value(challenge_html, "data-csrf")
         session_id = fields.get("_sessionID") or self._html_attr_value(challenge_html, "data-sessionid")
@@ -4898,8 +5023,15 @@ class PayPalFlow:
             if not isinstance(item, dict):
                 continue
             for err in item.get("errors") or []:
+                if isinstance(err, str):
+                    # GraphQL 可能直接返回字符串错误 (如 "BUYER_NOT_SET")
+                    if "BUYER_NOT_SET" in err:
+                        return True
+                    continue
+                if not isinstance(err, dict):
+                    continue
                 data = err.get("data") or {}
-                if data.get("contingency") == "BUYER_NOT_SET":
+                if isinstance(data, dict) and data.get("contingency") == "BUYER_NOT_SET":
                     return True
                 if err.get("message") == "BUYER_NOT_SET":
                     return True
@@ -5231,7 +5363,15 @@ class PayPalFlow:
         )
 
     def _card_issuer_type(self) -> str:
-        """PayPal GraphQL CardIssuerType enum."""
+        """PayPal GraphQL CardIssuerType enum (JCB/TROY 正确映射, 见 identity_lib.issuer_type_for)。"""
+        try:
+            from paypal.identity_lib import issuer_type_for
+
+            issuer = issuer_type_for(self.card.number)
+            if issuer:
+                return issuer
+        except Exception:
+            pass
         prefix2 = int(self.card.number[:2]) if self.card.number[:2].isdigit() else 0
         prefix4 = int(self.card.number[:4]) if self.card.number[:4].isdigit() else 0
         if 51 <= prefix2 <= 55 or 2221 <= prefix4 <= 2720:
@@ -5255,7 +5395,7 @@ class PayPalFlow:
 
 
     def _update_user_phone(self, phone: str):
-        """Update the BR phone fields used by the signup/2FA GraphQL calls."""
+        """Update the phone fields used by the signup/2FA GraphQL calls (国家相关前缀)。"""
         raw = (phone or "").strip()
         if raw.lower().startswith("phone:"):
             raw = raw.split(":", 1)[1].strip()
@@ -5264,16 +5404,15 @@ class PayPalFlow:
         if len(digits) < 8:
             raise ValueError("phone number is too short")
 
-        # This flow is hard-coded for BR checkout. Accept either +55xxxxxxxxxx
-        # or a local BR mobile number and normalize to the fields PayPal expects.
-        if digits.startswith("55") and len(digits) > 10:
-            country_code = "+55"
-            local = digits[2:]
+        cc_prefix = self._context_phone_cc()
+        if digits.startswith(cc_prefix) and len(digits) > len(cc_prefix) + 2:
+            country_code = f"+{cc_prefix}"
+            local = digits[len(cc_prefix):]
             full = f"+{digits}"
         else:
-            country_code = "+55"
+            country_code = f"+{cc_prefix}"
             local = digits
-            full = f"+55{digits}"
+            full = f"+{cc_prefix}{digits}"
 
         if len(local) < 8:
             raise ValueError("local phone number is too short")
@@ -5283,6 +5422,13 @@ class PayPalFlow:
         self.user.phone_local = local
         logger.info("Phone updated for OTP retry: {}", self._masked_phone())
         self._on_phone_updated()
+
+    def _context_phone_cc(self) -> str:
+        """国家上下文的手机国家码数字部分 (无上下文回退 55)。"""
+        if self.country_context is not None:
+            prefix = str(getattr(self.country_context, "phone_country", "") or "+55")
+            return prefix.lstrip("+") or "55"
+        return str(self.user.phone_country_code or "+55").lstrip("+") or "55"
 
     def _graphql_with_authchallenge_frontend_retry(
         self,
@@ -5426,16 +5572,19 @@ class PayPalFlow:
                 "weasley_initiate_phone_confirmation_start",
                 "weasley_api_request_initiate_risk_based_two_factor_phone_confirmation_mutation",
             ],
-            country=self.address.country,
-            lang="pt",
+            country=self._context_country(),
+            lang=self._context_lang(),
         )
         initiate_result = self._graphql_with_authchallenge_frontend_retry(
             "InitiateRiskBasedTwoFactorPhoneConfirmationMutation",
             INITIATE_2FA_PHONE_MUTATION,
             {
                 "phoneNumber": self.user.phone_local,
-                "locale": {"country": "BR", "lang": "pt"},
-                "phoneCountry": "BR",
+                "locale": {
+                    "country": self._context_country(),
+                    "lang": self._context_lang(),
+                },
+                "phoneCountry": self._context_country(),
                 "token": token,
             },
             signup_url,
@@ -5476,8 +5625,8 @@ class PayPalFlow:
                 "weasley_confirm_phone_confirmation_start",
                 "weasley_api_request_confirm_risk_based_two_factor_phone_confirmation_mutation",
             ],
-            country=self.address.country,
-            lang="pt",
+            country=self._context_country(),
+            lang=self._context_lang(),
         )
         confirm_result = self._graphql_with_authchallenge_frontend_retry(
             "ConfirmRiskBasedTwoFactorPhoneConfirmationMutation",
@@ -5574,8 +5723,14 @@ class PayPalFlow:
     def _confirm_phone_with_sms_provider(self, token: str, signup_url: str) -> None:
         if self.sms_provider is None:
             raise RuntimeError("SMS provider is not configured")
+        last_reserve_error: Exception | None = None
         for attempt in range(1, self.sms_provider.max_attempts + 1):
-            activation = self.sms_provider.reserve_number()
+            try:
+                activation = self.sms_provider.reserve_number()
+            except Exception as exc:
+                last_reserve_error = exc
+                logger.warning("SMS provider could not reserve a number (attempt {}): {}", attempt, exc)
+                break
             self._update_user_phone(activation.phone_number)
             try:
                 auth_id, challenge_id = self._initiate_2fa_phone_confirmation(token, signup_url)
@@ -5601,6 +5756,10 @@ class PayPalFlow:
                 return
             self.sms_provider.register_confirmation_result(activation, False)
             logger.warning("SMSBower OTP was rejected by PayPal; trying another number.")
+        if last_reserve_error is not None:
+            raise RuntimeError(
+                f"SMS number reservation failed after {attempt} attempts: {last_reserve_error}"
+            ) from last_reserve_error
         raise RuntimeError("SMSBower OTP confirmation failed after all attempts")
 
     def _card_expiration_date(self) -> str:
@@ -5634,7 +5793,17 @@ class PayPalFlow:
         billing_autocomplete_type = (
             "ANS" if self._billing_address_autocomplete_succeeded else "MANUAL"
         )
-        return {
+        country = self._context_country()
+        kyc_fields = self._context_kyc_fields()
+
+        identity_document: dict[str, str] | None = None
+        if kyc_fields.intersection({"IdentityDocumentType", "IdentityDocumentNumber"}) or country == "BR":
+            identity_document = {
+                "type": (self.user.identity_document_type or "CPF"),
+                "value": (self.user.identity_document_number or self.user.cpf or ""),
+            }
+
+        variables: dict[str, object] = {
             "card": {
                 "cardNumber": self.card.number,
                 "expirationDate": self._card_expiration_date(),
@@ -5642,7 +5811,7 @@ class PayPalFlow:
                 "type": card_type,
                 "productClass": self.card.card_type,
             },
-            "country": self.address.country,
+            "country": country,
             "email": self.user.email,
             "firstName": self.user.first_name,
             "lastName": self.user.last_name,
@@ -5663,7 +5832,7 @@ class PayPalFlow:
                     "autoCompleteType": billing_autocomplete_type,
                     "isUserModified": True,
                 },
-                "country": self.address.country,
+                "country": country,
                 "familyName": self.user.last_name,
                 "givenName": self.user.first_name,
             },
@@ -5676,7 +5845,7 @@ class PayPalFlow:
                     "autoCompleteType": "MANUAL",
                     "isUserModified": False,
                 },
-                "country": self.address.country,
+                "country": country,
                 "familyName": self.user.last_name,
                 "givenName": self.user.first_name,
             },
@@ -5684,13 +5853,24 @@ class PayPalFlow:
             "marketingOptOut": True,
             "password": self.user.password,
             "dateOfBirth": self._dob_payload(),
-            "identityDocument": {
-                "type": "CPF",
-                "value": self.user.cpf,
-            },
             "crsData": None,
             "legalAgreements": {},
         }
+
+        if self.user.nationality and "Nationality" in kyc_fields:
+            variables["nationality"] = self.user.nationality
+        if self.user.middle_name and (
+            country == "AU" or "MiddleName" in kyc_fields
+        ):
+            variables["middleName"] = self.user.middle_name
+        if country == "JP" and (self.user.kana_first or self.user.kana_last):
+            variables["countrySpecificFirstName"] = self.user.kana_first
+            variables["countrySpecificLastName"] = self.user.kana_last
+        if self.user.occupation and "Occupation" in kyc_fields:
+            variables["occupation"] = self.user.occupation
+        if identity_document is not None:
+            variables["identityDocument"] = identity_document
+        return variables
 
     def _send_address_autocomplete(self, token: str) -> None:
         self._billing_address_autocomplete_succeeded = False
@@ -5835,8 +6015,8 @@ class PayPalFlow:
                 "weasley_create_account_and_pay_submit",
                 "weasley_api_request_sign_up_new_member_mutation",
             ],
-            country=self.address.country,
-            lang="pt",
+            country=self._context_country(),
+            lang=self._context_lang(),
         )
         signup_variables = self._build_signup_variables(token)
         signup_result = self._post_signup_with_authchallenge_ignore(
@@ -6121,6 +6301,8 @@ class PayPalFlow:
         errors = result_obj.get("errors", []) or []
         if errors:
             for err in errors:
+                if not isinstance(err, dict):
+                    continue
                 logger.error(
                     "Signup error detail: {}",
                     json.dumps(
@@ -6176,6 +6358,8 @@ class PayPalFlow:
             "CREATE_CARD_ACCOUNT_CANDIDATE_VALIDATION_ERROR",
         }
         for err in errors or []:
+            if not isinstance(err, dict):
+                continue
             checkpoints = set(err.get("checkpoints") or [])
             if checkpoints.intersection({"addCard", "validate.fi", "card", "fi"}):
                 return True
@@ -6188,11 +6372,16 @@ class PayPalFlow:
 
     @staticmethod
     def _has_signup_error_message(errors: list[dict[str, Any]], message: str) -> bool:
-        return any(str(err.get("message") or "") == message for err in errors or [])
+        return any(
+            isinstance(err, dict) and str(err.get("message") or "") == message
+            for err in errors or []
+        )
 
     @staticmethod
     def _is_create_member_account_retryable_signup_error(errors: list[dict[str, Any]]) -> bool:
         for err in errors or []:
+            if not isinstance(err, dict):
+                continue
             checkpoints = {str(item) for item in (err.get("checkpoints") or [])}
             message = str(err.get("message") or err.get("_name") or "")
             name = str(err.get("_name") or "")
@@ -6216,7 +6405,13 @@ class PayPalFlow:
             logger.info("Waiting {:.1f}s before next card retry...", delay)
             time.sleep(delay)
 
-        self.card = generate_card(proxy_url=self.proxy_config.url)
+        self.card = generate_card(
+            proxy_url=self.proxy_config.url,
+            country=self._context_country(),
+            used_bins=self._used_card_bins,
+        )
+        if self.card.bin:
+            self._used_card_bins.add(self.card.bin)
         logger.info(
             "New generated card for retry: {} exp={}",
             self._masked_card_number(),
@@ -6237,8 +6432,14 @@ class PayPalFlow:
             time.sleep(delay)
 
         current_phone = self.user.phone
-        self.user = generate_user(current_phone)
-        self.card = generate_card(proxy_url=self.proxy_config.url)
+        self.user = generate_user(current_phone, country=self._context_country())
+        self.card = generate_card(
+            proxy_url=self.proxy_config.url,
+            country=self._context_country(),
+            used_bins=self._used_card_bins,
+        )
+        if self.card.bin:
+            self._used_card_bins.add(self.card.bin)
         self.state.user_id = ""
         self.state.euat_token = ""
         self.state.signup_fallback_reason = ""
@@ -6937,8 +7138,8 @@ class PayPalFlow:
                     "WEASLEY_PREPARE_BILLING_PAGE_FPTI",
                     "weasley_payment_request_api_available",
                 ],
-                country=self.address.country,
-                lang="pt",
+                country=self._context_country(),
+                lang=self._context_lang(),
             )
 
         logger.info("Sending checkout session GraphQL queries...")
@@ -7304,6 +7505,64 @@ class PayPalFlow:
                 result.append(value)
         return result or [self.state.paypal_client_metadata_id]
 
+    def _sync_buyer_context(self, token: str, referer: str) -> bool:
+        """Refresh the checkout buyer context with the signed-up member EUAT.
+
+        Ported from paypal-agreement-protocol flow._sync_buyer_context: the
+        final billing.authorize mutation requires the member identity to be
+        attached to the EC checkout; without this sync it returns BUYER_NOT_SET.
+        Refreshes the EUAT access token and userId from the GraphQL buyer block.
+        """
+        if not self.state.euat_token:
+            logger.warning("Buyer-context sync skipped because the signup access token is missing")
+            return False
+
+        self._ensure_euat_cookie()
+
+        try:
+            result = self.session.graphql(
+                "BuyerContextQuery",
+                BUYER_CONTEXT_QUERY,
+                {"token": token},
+                extra_headers={
+                    "Referer": referer,
+                    "X-App-Name": "checkoutuinodeweb",
+                    "X-PayPal-Internal-EUAT": self.state.euat_token,
+                    "PayPal-Client-Context": token,
+                    "PayPal-Client-Metadata-Id": self.state.paypal_client_metadata_id,
+                    "X-Country": self._profile_country(),
+                    "X-Locale": self._profile_locale(),
+                },
+                endpoint="https://www.paypal.com/graphql/",
+            )
+        except Exception as sync_error:
+            logger.warning("Buyer-context GraphQL refresh failed: {}", sync_error)
+            return False
+
+        result_obj = result[0] if isinstance(result, list) and result else result
+        if not isinstance(result_obj, dict):
+            logger.warning("Buyer-context refresh returned type {}", type(result_obj).__name__)
+            return False
+        data_obj = result_obj.get("data")
+        data_obj = data_obj if isinstance(data_obj, dict) else {}
+        checkout = data_obj.get("checkoutSession")
+        checkout = checkout if isinstance(checkout, dict) else {}
+        buyer = checkout.get("buyer")
+        buyer = buyer if isinstance(buyer, dict) else {}
+        auth = buyer.get("auth")
+        auth = auth if isinstance(auth, dict) else {}
+        refreshed_access_token = auth.get("accessToken")
+        if isinstance(refreshed_access_token, str) and refreshed_access_token:
+            self.state.euat_token = refreshed_access_token
+            self._ensure_euat_cookie()
+        user_id = buyer.get("userId")
+        if isinstance(user_id, str) and user_id:
+            self.state.user_id = user_id
+            logger.info("Buyer context synchronized for user {}", user_id)
+            return True
+        logger.warning("Buyer-context refresh completed without a buyer userId")
+        return False
+
     def _phase4_authorize(self) -> dict[str, object]:
         """Send the final authorize mutation to approve the billing agreement."""
         logger.info("--- Phase 4: Final authorization ---")
@@ -7347,6 +7606,14 @@ class PayPalFlow:
             sanitize_for_log({"billingAgreementId": billing_agreement_id})["billingAgreementId"],
         )
 
+        buyer_synced = False
+        if self.state.euat_token:
+            buyer_synced = self._sync_buyer_context(billing_agreement_id, review_referer)
+        if self._strict_buyer_context and not buyer_synced:
+            raise RuntimeError(
+                "BUYER_CONTEXT_SYNC_FAILED: member identity is not attached to the billing checkout"
+            )
+
         def send_authorize(metadata_id: str):
             return self.session.graphql(
                 "authorize",
@@ -7388,6 +7655,8 @@ class PayPalFlow:
                     review_referer,
                 )
                 self._send_tealeaf_data(self.session, review_url)
+                if self.state.euat_token:
+                    self._sync_buyer_context(billing_agreement_id, review_referer)
                 time.sleep(min(2, authorize_attempt))
 
             metadata_id = metadata_candidates[(authorize_attempt - 1) % len(metadata_candidates)]
@@ -7431,6 +7700,19 @@ class PayPalFlow:
             if not isinstance(auth_data, dict):
                 errors = result_obj.get("errors") if isinstance(result_obj, dict) else None
                 buyer_not_set = self._has_buyer_not_set(result)
+                # 提取首个错误的真实原因 (data/message/contingency), 便于观测
+                err_reason = ""
+                if isinstance(errors, list):
+                    for e in errors:
+                        if isinstance(e, dict):
+                            rd = e.get("data")
+                            if isinstance(rd, str):
+                                err_reason = rd
+                            elif isinstance(rd, dict):
+                                err_reason = str(rd.get("contingency") or rd.get("reason") or rd.get("code") or err_reason)
+                            if not err_reason:
+                                err_reason = str(e.get("message") or "")
+                            break
                 if buyer_not_set:
                     logger.error(
                         "Authorization failed: BUYER_NOT_SET after {}/{} authorize "
@@ -7450,9 +7732,9 @@ class PayPalFlow:
                     "error": (
                         "authorize returned BUYER_NOT_SET"
                         if buyer_not_set
-                        else "authorize returned empty result"
+                        else f"authorize returned empty result: {err_reason or 'no error detail'}"
                     ),
-                    "reason": "BUYER_NOT_SET" if buyer_not_set else "AUTHORIZE_EMPTY",
+                    "reason": "BUYER_NOT_SET" if buyer_not_set else f"AUTHORIZE_EMPTY:{err_reason or 'NONE'}",
                     "retryable": bool(buyer_not_set),
                     "partial_signup_token": self._used_partial_signup_token,
                     "raw_response": result,
@@ -7507,6 +7789,34 @@ class PayPalFlow:
 
             stripe_redirect = self._parse_redirect_status(final_redirect_url)
 
+            # 对账层 (core.reconciliation): 沿白名单回跳链验证商户侧是否确认成功
+            reconciliation = None
+            try:
+                from core.reconciliation import CurlTransport, reconcile_paypal_return
+
+                rec_source = ""
+                for candidate in (final_redirect_url, self.state.return_url):
+                    cand = str(candidate or "").strip()
+                    if not cand or not cand.startswith("https://"):
+                        continue
+                    if any(host in cand for host in ("stripe.com", "pay.openai.com", "chatgpt.com")):
+                        rec_source = cand
+                        break
+                if rec_source:
+                    from urllib.parse import urlsplit as _urlsplit
+
+                    host = str(_urlsplit(rec_source).hostname or "").lower()
+                    if host in {"pm-redirects.stripe.com", "pay.openai.com", "chatgpt.com"}:
+                        rec = reconcile_paypal_return(
+                            rec_source,
+                            transport=CurlTransport(self.session),
+                            max_hops=8,
+                            timeout=15.0,
+                        )
+                        reconciliation = rec.to_dict()
+            except Exception as rec_error:
+                logger.warning("Reconciliation skipped: {}", rec_error)
+
             # Send final analytics
             send_analytics_ts(
                 self.session,
@@ -7526,6 +7836,7 @@ class PayPalFlow:
                 "paypal_return_url": paypal_return_url,
                 "final_redirect_url": final_redirect_url,
                 "stripe_redirect": stripe_redirect,
+                "reconciliation": reconciliation,
                 "payment_action": auth_data["paymentAction"],
             }
         except (KeyError, IndexError, TypeError) as e:

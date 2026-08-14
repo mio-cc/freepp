@@ -61,6 +61,26 @@ function genFailureSamples(n: number): Sample[] {
   return out;
 }
 
+function CountryCell({ s }: { s: Sample }) {
+  const act = s.actual_country || "";
+  const req = s.requested_country || s.country || "";
+  if (act && req && act !== req) {
+    return (
+      <span className="tag" title={`配置 ${req} → 实际 ${act}${s.exit_ip ? `, 出口 ${s.exit_ip}` : ""}`}>
+        {req}→{act}⚠
+      </span>
+    );
+  }
+  if (act) {
+    return (
+      <span className="tag" title={s.exit_ip ? `出口 ${s.exit_ip}${s.geo_confidence ? `, 置信 ${Math.round((s.geo_confidence || 0) * 100)}%` : ""}` : undefined}>
+        {act}
+      </span>
+    );
+  }
+  return <span className="tag">{req || "—"}</span>;
+}
+
 export function SamplesView() {
   const sampleTab = useStore((s) => s.sampleTab);
   const setSampleTab = useStore((s) => s.setSampleTab);
@@ -175,7 +195,7 @@ export function SamplesView() {
                       <tr key={s.chain_id || i}>
                         <td className="mono">{s.chain_id}</td>
                         <td>{s.email}</td>
-                        <td><span className="tag">{s.country}</span></td>
+                        <td><CountryCell s={s} /></td>
                         <td className="mono">{s.ts.replace("T", " ").slice(0, 19)}</td>
                         <td className="mono" style={{ maxWidth: 320 }} title={s.paypal_approve_url}>
                           <span className="ellipsis" style={{ display: "inline-block", maxWidth: 320, verticalAlign: "bottom" }}>
@@ -188,7 +208,7 @@ export function SamplesView() {
                       <tr key={s.chain_id || i}>
                         <td className="mono">{s.chain_id}</td>
                         <td>{s.email}</td>
-                        <td><span className="tag">{s.country}</span></td>
+                        <td><CountryCell s={s} /></td>
                         <td className="mono">{s.ts.replace("T", " ").slice(0, 19)}</td>
                         <td><span className="tag">{s.stage_reached}</span></td>
                         <td>

@@ -358,6 +358,27 @@
           </div>
         </div>
 
+        <!-- 注册池导入区 -->
+        <div class="panel import-panel">
+          <div class="panel-header">
+            <h2>从注册池导入</h2>
+            <span class="muted">拉取 codex_register 未使用邮箱/token · access_token + email 双重去重</span>
+          </div>
+          <div class="btn-row">
+            <input type="text" id="poolUrlInput" class="input-grow"
+                   placeholder="注册池地址（默认 config.register_pool.base_url）"/>
+            <select id="poolSourceSelect" class="select-sm" style="margin-right:8px">
+              <option value="stripe">stripe</option>
+              <option value="momo">momo</option>
+              <option value="grok">grok</option>
+              <option value="pix">pix</option>
+              <option value="direct">direct</option>
+            </select>
+            <button class="btn btn-primary" id="importFromPoolBtn">拉取并导入</button>
+            <span class="muted" id="poolImportResult"></span>
+          </div>
+        </div>
+
         <!-- 筛选 -->
         <div class="toolbar">
           <div class="toolbar-group">

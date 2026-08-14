@@ -14,6 +14,7 @@ export function ChainsView() {
   const chainStates = useStore((s) => s.chainStates);
   const batchTotal = useStore((s) => s.batchTotal);
   const batchDone = useStore((s) => s.batchDone);
+  const batchRunning = useStore((s) => s.batchRunning);
   const pushLog = useStore((s) => s.pushLog);
 
   const [, setTick] = useState(0);
@@ -34,6 +35,8 @@ export function ChainsView() {
   const successCount = chainList.filter(({ cs }) => cs.status === "success").length;
   const failedCount = chainList.filter(({ cs }) => cs.status === "failed").length;
   const queuedCount = Math.max(0, batchTotal - batchDone - activeCount);
+  /** 有运行中链路或有批次在排队时, 停止按钮进入可用的活跃态 */
+  const hasActivity = activeCount > 0 || batchRunning || queuedCount > 0;
 
   const handleStop = async () => {
     setBusy(true);
@@ -55,9 +58,20 @@ export function ChainsView() {
           <p className="page-sub">每条链路的 7 段管道进度、出口国家与耗时</p>
         </div>
         <div className="page-actions">
-          <button className="btn btn-danger" onClick={handleStop} disabled={busy}>
-            停止全部
-          </button>
+          {hasActivity ? (
+            <button
+              className="btn btn-danger btn-stop-live"
+              onClick={handleStop}
+              disabled={busy}
+              title={`停止全部: ${activeCount} 条运行中, ${queuedCount} 条排队中`}
+            >
+              {busy ? "发送中…" : `■ 停止全部 (活跃 ${activeCount + queuedCount})`}
+            </button>
+          ) : (
+            <button className="btn btn-ghost" disabled title="当前没有运行中的链路">
+              停止全部
+            </button>
+          )}
         </div>
       </div>
 

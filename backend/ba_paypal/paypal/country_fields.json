@@ -1,0 +1,184 @@
+{
+  "meta": {
+    "source": "gj/_js/main_72d757f6c90e0b683d47_js.js (kycFields/kycIdTypes) + gj/signup_form_*.json + gj/paypal_form_*.json",
+    "algorithms": {
+      "TH": "Thai PIN 13-digit, weights 13..2 mod-11, check=(11-s%11)%10",
+      "AE": "Emirates ID 784-YYYY-NNNNNNN-C, Luhn mod-10",
+      "KR": "RRN 13-digit, weights 2,3,4,5,6,7,8,9,2,3,4,5 mod-11",
+      "BR": "CPF 11-digit double mod-11",
+      "ZA": "SA ID YYMMDDSSSSC8Z, Luhn mod-10",
+      "AR": "CUIT/CUIL 11-digit, weights 5,4,3,2,7,6,5,4,3,2 mod-11",
+      "VN": "CCCD 12-digit structural (province+gender/century+year+random), no checksum",
+      "BH": "CPR YYMMNNNNC, official checksum unpublished (Luhn placeholder)",
+      "MX": "CURP 18-char base37, weights 18..2 mod-10",
+      "DE": "IBAN DE mod-97 (ISO 13616)",
+      "JP": "katakana name via roman->katakana rule map"
+    },
+    "updated": "2026-08-12"
+  },
+  "kycFields": {
+    "US": [],
+    "JP": ["Nationality", "DateOfBirth"],
+    "GB": ["DateOfBirth", "Nationality"],
+    "MX": ["DateOfBirth"],
+    "AU": ["DateOfBirth"],
+    "IN": ["Nationality"],
+    "CA": ["DateOfBirth", "Occupation"],
+    "BR": ["DateOfBirth", "IdentityDocumentType", "IdentityDocumentNumber"],
+    "C2": ["DateOfBirth", "IdentityDocumentType", "IdentityDocumentNumber"],
+    "CH": ["DateOfBirth", "IdentityDocumentType", "IdentityDocumentNumber"],
+    "IL": ["DateOfBirth", "IdentityDocumentType", "IdentityDocumentNumber"],
+    "HK": ["DateOfBirth", "Gender", "PlaceOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+    "RU": ["CountryOfResidence", "IdentityDocumentType", "IdentityDocumentNumber", "DateOfBirth", "SecondaryIdentityDocumentType", "SecondaryIdentityDocumentNumber"],
+    "TH": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+    "DEFAULT_FULL": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"]
+  },
+  "kycIdTypes": {
+    "DEFAULT": ["NATIONAL_ID", "PASSPORT_NUMBER", "DRIVERS_LICENSE"],
+    "BR": ["CPF"],
+    "KR": ["PASSPORT_NUMBER", "DRIVERS_LICENSE"],
+    "RU": ["PASSPORT_NUMBER"],
+    "TH": ["NATIONAL_ID"],
+    "HK": ["NATIONAL_ID", "PASSPORT_NUMBER", "TEMPORARY_NATIONAL_ID"]
+  },
+  "countries": {
+    "US": {
+      "kyc_fields": [],
+      "id_types": [],
+      "extra_fields": [],
+      "notes": "无 KYC 字段, 最简提链国; signup 仅 email/phone/name"
+    },
+    "JP": {
+      "kyc_fields": ["Nationality", "DateOfBirth"],
+      "id_types": [],
+      "extra_fields": ["countrySpecificFirstName(kana)", "countrySpecificLastName(kana)"],
+      "notes": "kana/kanji 字段需 shouldDisplayJpKanaAndKanjiNames + nationality==JP; 表单另有全名拆分"
+    },
+    "GB": {
+      "kyc_fields": ["DateOfBirth", "Nationality"],
+      "id_types": [],
+      "extra_fields": [],
+      "notes": "signup 表单含 cardNumber/expiry/cvv(非必须), 有 billingState/City; 无身份证字段"
+    },
+    "MX": {
+      "kyc_fields": ["DateOfBirth"],
+      "id_types": [],
+      "extra_fields": ["bank(可选:BANAMEX/BANCOAZTECA/BBVA/BANORTE/HSBC/INBURSA/SANTANDER)"],
+      "notes": "CURP 仅当被要求时提供 (18位 base37 mod-10 已实现)"
+    },
+    "TH": {
+      "kyc_fields": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["NATIONAL_ID"],
+      "extra_fields": [],
+      "notes": "NATIONAL_ID = 13位泰国公民号 (mod-11); kycUsesNationalityOnChange=true"
+    },
+    "NL": {
+      "kyc_fields": ["DateOfBirth", "Nationality"],
+      "id_types": [],
+      "extra_fields": [],
+      "notes": "默认字段集"
+    },
+    "VN": {
+      "kyc_fields": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["NATIONAL_ID"],
+      "extra_fields": [],
+      "notes": "CCCD 12位 (无校验位, 结构生成)"
+    },
+    "BH": {
+      "kyc_fields": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["NATIONAL_ID"],
+      "extra_fields": [],
+      "notes": "CPR 9位 YYMMNNNNC; 官方校验算法未公开, 占位 Luhn"
+    },
+    "AO": {
+      "kyc_fields": ["DateOfBirth", "Nationality"],
+      "id_types": [],
+      "extra_fields": [],
+      "notes": "默认字段集 (安哥拉)"
+    },
+    "AE": {
+      "kyc_fields": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["NATIONAL_ID"],
+      "extra_fields": [],
+      "notes": "Emirates ID 784-YYYY-NNNNNNN-C Luhn"
+    },
+    "AU": {
+      "kyc_fields": ["DateOfBirth"],
+      "id_types": [],
+      "extra_fields": ["middleName"],
+      "notes": "shouldDisplayAustraliaMiddleName=true 时提交 middleName"
+    },
+    "CI": {
+      "kyc_fields": ["DateOfBirth", "Nationality"],
+      "id_types": [],
+      "extra_fields": [],
+      "notes": "默认字段集 (科特迪瓦)"
+    },
+    "TR": {
+      "kyc_fields": ["DateOfBirth", "Nationality"],
+      "id_types": [],
+      "extra_fields": [],
+      "notes": "默认字段集"
+    },
+    "DE": {
+      "kyc_fields": ["DateOfBirth", "Nationality"],
+      "id_types": [],
+      "extra_fields": ["bankIban(可选)"],
+      "notes": "signup 表单特有 bankIban; nationality 字段存在 (DE/GB 特有)"
+    },
+    "BR": {
+      "kyc_fields": ["DateOfBirth", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["CPF"],
+      "extra_fields": [],
+      "notes": "CPF 必填; cardProductClass 需要时提供 DEBIT/CREDIT"
+    },
+    "KR": {
+      "kyc_fields": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["PASSPORT_NUMBER", "DRIVERS_LICENSE"],
+      "extra_fields": ["4个同意勾选"],
+      "notes": "kycIdTypes 无 NATIONAL_ID; RRN 生成已实现备用"
+    },
+    "AR": {
+      "kyc_fields": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["NATIONAL_ID"],
+      "extra_fields": [],
+      "notes": "NATIONAL_ID = CUIT/CUIL 11位 mod-11"
+    },
+    "ZA": {
+      "kyc_fields": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["NATIONAL_ID"],
+      "extra_fields": [],
+      "notes": "SA ID 13位 Luhn (YYMMDDSSSSC8Z)"
+    },
+    "HK": {
+      "kyc_fields": ["DateOfBirth", "Gender", "PlaceOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["NATIONAL_ID", "PASSPORT_NUMBER", "TEMPORARY_NATIONAL_ID"],
+      "extra_fields": ["性别/出生地/国籍"],
+      "notes": "唯一带 Gender/PlaceOfBirth 的国家"
+    },
+    "RU": {
+      "kyc_fields": ["CountryOfResidence", "IdentityDocumentType", "IdentityDocumentNumber", "DateOfBirth", "SecondaryIdentityDocumentType", "SecondaryIdentityDocumentNumber"],
+      "id_types": ["PASSPORT_NUMBER"],
+      "extra_fields": ["secondaryIdentityDocument"],
+      "notes": "唯一带 secondary identity (TAX_IDENTIFICATION_NUMBER/PENSION_FUND_ID) 的国家"
+    },
+    "IN": {
+      "kyc_fields": ["Nationality"],
+      "id_types": [],
+      "extra_fields": [],
+      "notes": "仅 Nationality"
+    },
+    "CA": {
+      "kyc_fields": ["DateOfBirth", "Occupation"],
+      "id_types": [],
+      "extra_fields": ["Occupation"],
+      "notes": "唯一带 Occupation 的国家"
+    },
+    "SA": {
+      "kyc_fields": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["NATIONAL_ID"],
+      "extra_fields": [],
+      "notes": "Iqama/国民身份证 (算法未收录, 用通用格式)"
+    }
+  }
+}

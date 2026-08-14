@@ -174,12 +174,18 @@ class AsyncChainOrchestrator:
             if cs:
                 cs["status"] = "success"
                 cs["url"] = event.get("paypal_approve_url", "")
+                # 冻结耗时: 终端状态后不再累计计时
+                cs["endTime"] = time.time() * 1000
+                cs["elapsed"] = round(float(event.get("elapsed") or 0) or
+                                     (cs["endTime"] - cs.get("startTime", cs["endTime"])) / 1000, 2)
             self.stats.record_success(event.get("country", ""), event.get("elapsed", 0))
         elif etype == "chain_failure" and cid:
             cs = self.chain_states.get(cid)
             if cs:
                 cs["status"] = "failed"
                 cs["reason"] = event.get("reason_code", "")
+                cs["endTime"] = time.time() * 1000
+                cs["elapsed"] = round((cs["endTime"] - cs.get("startTime", cs["endTime"])) / 1000, 2)
             self.stats.record_failure(event.get("country", ""), event.get("reason_code", ""))
 
         # stage 矩阵记录
@@ -235,7 +241,14 @@ class AsyncChainOrchestrator:
                 paypal_url=result.paypal_approve_url, amount_due=result.amount_due,
                 currency=result.currency, country=result.country,
                 stage_reached=result.stage_reached,
-                payload=json.dumps({"pm_authorize_url": result.pm_authorize_url}, ensure_ascii=False),
+                payload=json.dumps({
+                    "pm_authorize_url": result.pm_authorize_url,
+                    "stage_geo": result.stage_geo,
+                }, ensure_ascii=False),
+                actual_country=result.actual_country,
+                requested_country=result.requested_country,
+                exit_ip=result.exit_ip,
+                geo_confidence=result.geo_confidence,
             )
         except Exception:
             pass
@@ -251,6 +264,21 @@ class AsyncChainOrchestrator:
                     country=result.billing_country or result.country,
                     channel=channel,
                 )
+                # paypal 渠道: BA 自动进入授权队列, 并广播通知前端刷新
+                if channel == "paypal" and result.paypal_approve_url:
+                    from core.ba_queue import import_from_url
+                    imported = import_from_url(
+                        result.paypal_approve_url,
+                        email=result.email,
+                        country=result.billing_country or result.country,
+                        chain_id=chain_id,
+                    )
+                    if imported:
+                        await self.conn_mgr.broadcast({
+                            "type": "ba_imported",
+                            "ba_token": result.ba_token,
+                            "email": result.email,
+                        })
             except Exception:
                 pass
         return result
@@ -275,8 +303,12 @@ class AsyncChainOrchestrator:
         self._batch_done = 0
         self._batch_start_time = time.time()
         self.chain_states = {}
-        # 更新并发上限
-        max_conc = int(options.get("max_concurrent", settings.max_concurrent_chains))
+        # 通知前端: 新一轮开始, 清空上一轮残留进度
+        await self.conn_mgr.broadcast({
+            "type": "batch_start", "total": len(tokens), "running": True,
+        })
+        # 并发上限默认 = 选中条数 (不设限流)，仅当显式传 max_concurrent 时作限制
+        max_conc = int(options.get("max_concurrent") or len(tokens) or 1)
         self.semaphore = asyncio.Semaphore(max(1, max_conc))
 
         async def _run_all() -> None:
@@ -329,6 +361,21 @@ class AsyncChainOrchestrator:
         else:
             for ch in list(self.active_chains.values()):
                 ch.cancel()
+        # 停止时必须复位批量状态并通知前端, 否则 _run_all 被取消后
+        # 收尾代码不执行, _batch_running 永久 True (前端"停止全部"一直红/可点)
+        self._batch_running = False
+        if self._batch_task:
+            self._batch_task.cancel()
+            try:
+                await self._batch_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+        await self.conn_mgr.broadcast({
+            "type": "batch_done", "success": 0, "failure": 0,
+            "elapsed": round(time.time() - self._batch_start_time, 2),
+        })
         return {"ok": True, "stopped": len(self.active_chains)}
 
     # ------------------------------------------------------------------

@@ -152,7 +152,7 @@ export function DirectView() {
                 stage={stage}
                 cfg={sc}
                 countries={countryOptions}
-                onSave={(st, patch) => handleSaveStage(st, patch)}
+                onSave={(st, patch) => handleSaveStage(st as StageName, patch)}
                 saving={savingStage === stage}
               />
             );

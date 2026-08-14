@@ -3259,7 +3259,19 @@ class LocalHeadlessSession:
                     if error:
                         raise RuntimeError(error)
                 else:
-                    page.add_script_tag(url=script_url)
+                    try:
+                        page.add_script_tag(url=script_url)
+                    except Exception as exc:
+                        # add_script_tag 走页面内 fetch, 受页面 CSP 限制可能失败;
+                        # 回退: 带代理下载内容后 evaluate 直接执行 (绕过 CSP fetch 拦截)
+                        content = self._fetch_inject_script(script_url)
+                        if content:
+                            try:
+                                page.evaluate(content)
+                            except Exception as exc2:
+                                raise RuntimeError(f"add_script_tag+eval fallback failed: {exc2}") from exc
+                        else:
+                            raise
                 injected = self.events.get("injected_scripts")
                 if isinstance(injected, list):
                     injected.append(script_url)
@@ -3268,6 +3280,30 @@ class LocalHeadlessSession:
                 errors = self.events.get("inject_errors")
                 if isinstance(errors, list):
                     errors.append({"url": script_url, "error": str(exc)})
+
+    def _fetch_inject_script(self, script_url: str) -> str:
+        """带代理下载脚本内容, 供 evaluate 注入回退 (绕过 add_script_tag 的 CSP fetch 限制)。"""
+        try:
+            if self.proxy_url:
+                from curl_cffi import requests as _creq
+
+                resp = _creq.get(
+                    script_url,
+                    timeout=25,
+                    impersonate="chrome",
+                    proxies={"http": self.proxy_url, "https": self.proxy_url},
+                )
+                content = resp.text or ""
+            else:
+                import urllib.request
+
+                with urllib.request.urlopen(script_url, timeout=25) as resp:
+                    content = resp.read().decode("utf-8", errors="replace")
+            if content and len(content) > 64:
+                return content
+        except Exception:
+            return ""
+        return ""
 
     def intercept_summary(self) -> JsonObject:
         return {

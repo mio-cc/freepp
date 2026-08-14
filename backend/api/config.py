@@ -207,6 +207,53 @@ async def update_branch_config(body: dict):
         branch_cfg = {}
         branches_cfg[branch_name] = branch_cfg
 
+    # oaics 五段子配置
+    # 2026-08-13 废弃: 链路已改为跟随七段映射 (oaics 不再参与决策), 保留写入仅为
+    # 旧前端/API 回显兼容; 新前端 OAICS 卡片为只读展示, 不会调用此分支。
+    if "oaics" in body:
+        from core.config import OAICS_STAGE_NAMES
+
+        oaics = body["oaics"]
+        if isinstance(oaics, dict):
+            oaics_cfg = branch_cfg.setdefault("oaics", {})
+            if not isinstance(oaics_cfg, dict):
+                oaics_cfg = {}
+                branch_cfg["oaics"] = oaics_cfg
+            for key in ("label", "channel", "token_source"):
+                if key in oaics:
+                    oaics_cfg[key] = str(oaics[key])
+            for key in ("require_zero", "channel_check", "follow_checkout"):
+                if key in oaics:
+                    oaics_cfg[key] = bool(oaics[key])
+            if "billing_country" in oaics:
+                bc = str(oaics["billing_country"] or "auto").strip().upper()
+                oaics_cfg["billing_country"] = "auto" if bc in ("AUTO", "") else bc
+            if "attempts" in oaics:
+                oaics_cfg["attempts"] = max(1, int(oaics["attempts"]))
+            stages = oaics.get("stages")
+            if isinstance(stages, dict):
+                cur_stages = oaics_cfg.setdefault("stages", {})
+                if not isinstance(cur_stages, dict):
+                    cur_stages = {}
+                    oaics_cfg["stages"] = cur_stages
+                for stage_name, patch in stages.items():
+                    if stage_name not in OAICS_STAGE_NAMES or not isinstance(patch, dict):
+                        continue
+                    sc = cur_stages.setdefault(stage_name, {})
+                    if "countries" in patch:
+                        val = patch["countries"]
+                        if isinstance(val, str):
+                            val = [c.strip().upper() for c in val.split(",") if c.strip()]
+                        sc["countries"] = list(val or [])
+                    for key in ("timeout", "retry"):
+                        if key in patch:
+                            sc[key] = int(patch[key])
+                    if stage_name == "poll":
+                        if "poll_interval" in patch:
+                            sc["poll_interval"] = float(patch["poll_interval"])
+                        if "max_polls" in patch:
+                            sc["max_polls"] = int(patch["max_polls"])
+
     # 标量开关
     for key in ("label", "channel", "token_source"):
         if key in body:

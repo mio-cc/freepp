@@ -1058,7 +1058,12 @@ function patchWindow(win, userAgent, parentUrl, parentPostMessage) {
 
   // Executable Worker/SharedWorker (hsw fingerprint collectors)
   try {
-    const { installOnWindow } = require('./worker_polyfill.js');
+    let installOnWindow;
+    try {
+      ({ installOnWindow } = require('./worker_polyfill.js'));
+    } catch (_) {
+      ({ install: installOnWindow } = require('./sandbox_polyfill.js'));
+    }
     installOnWindow(win);
   } catch (e) {
     console.error('[hcap] worker_polyfill fail', e && e.message);

@@ -27,10 +27,29 @@ def _smsbower_enabled() -> bool:
     return bool(getattr(_smsbower_module(), "smsbower_enabled")())
 
 
-def _build_smsbower_provider(enabled: bool, api_key: str | None):
+def _build_cc_sms_id(country: str) -> str:
+    """国家上下文接码数字码 (供 CLI smsbower provider 按国选号)。"""
+    try:
+        from paypal.country_profile import country_context
+        return country_context(country).sms_country_id
+    except Exception:
+        return "73"
+
+
+def _build_cc_phone(country: str) -> str:
+    try:
+        from paypal.country_profile import country_context
+        return country_context(country).phone_country
+    except Exception:
+        return "+55"
+
+
+def _build_smsbower_provider(enabled: bool, api_key: str | None, country=None, phone_cc="+55"):
     return getattr(_smsbower_module(), "build_smsbower_provider")(
         enabled=enabled,
         api_key=api_key,
+        country=country or "73",
+        phone_cc=phone_cc,
     )
 
 
@@ -46,6 +65,12 @@ def main():
         "--phone",
         default="",
         help="Phone number with country code (e.g. +5591980133818)"
+    )
+    parser.add_argument(
+        "--identity-country",
+        default="BR",
+        help="Identity country for signup fields (US/JP/GB/MX/TH/NL/VN/BH/AO/AE/AU/CI/TR/DE/BR/...). "
+             "Generates country-valid names/DOB/identity document via paypal.identity_lib.",
     )
     parser.add_argument(
         "--smsbower",
@@ -155,6 +180,12 @@ def main():
         default=None,
         help="Signup-context browser risk source: roxy browser runtime, local headless Playwright, auto, or off",
     )
+    parser.add_argument(
+        "--buyer-mode",
+        choices=["original", "elevation", "identity_elevation"],
+        default=None,
+        help="Buyer mode: original (legacy flow) or identity_elevation (guest->member hydration, default for new runs)",
+    )
 
     args = parser.parse_args()
 
@@ -181,24 +212,42 @@ def main():
         index=args.proxy_index,
         proxy_url=args.proxy_url,
     )
+    identity_country = (args.identity_country or "BR").upper()
     sms_provider_requested = bool(args.smsbower or args.smsbower_api_key or _smsbower_enabled())
     sms_provider = _build_smsbower_provider(
         enabled=sms_provider_requested,
         api_key=args.smsbower_api_key,
+        country=(
+            _build_cc_sms_id(identity_country)
+            if identity_country != "BR"
+            else None
+        ),
+        phone_cc=_build_cc_phone(identity_country),
     )
-    if not args.phone and sms_provider is None:
+    if not args.phone and sms_provider is None and identity_country == "BR":
         parser.error("--phone is required unless --smsbower or SMSBOWER_ENABLED=1 is set")
 
-    user = generate_user(args.phone or "+5500000000000")
-    card = generate_card(proxy_url=proxy_config.url)
-    address = generate_address()
+    user = generate_user(args.phone or "", country=identity_country)
+    card = generate_card(proxy_url=proxy_config.url, country=identity_country)
+    address = generate_address(country=identity_country)
+
+    country_context = None
+    if identity_country != "BR":
+        from paypal.country_profile import country_context as _build_cc
+
+        country_context = _build_cc(identity_country)
+        logger.info(f"Identity country: {identity_country} (country context applied)")
+
 
     logger.info(f"User: {user.first_name} {user.last_name}")
     logger.info("Email: {}", sanitize_for_log({"email": user.email})["email"])
     if sms_provider is None:
         logger.info("Phone: {}", sanitize_for_log({"phone": user.phone})["phone"])
     else:
-        logger.info("Phone: SMSBower auto mode will reserve a Brazil PayPal number before OTP")
+        logger.info(
+            "Phone: SMSBower auto mode will reserve a {} PayPal number before OTP",
+            identity_country,
+        )
     logger.info("CPF: <redacted>")
     logger.info("DOB: <redacted>")
     logger.info(
@@ -209,7 +258,13 @@ def main():
     logger.info("Address generated: {}, {}-{}", address.district, address.city, address.state)
     logger.info(f"Proxy: {proxy_config.label}")
 
-    flow = PayPalFlow(
+    flow_cls = PayPalFlow
+    if args.buyer_mode in {"elevation", "identity_elevation"}:
+        from paypal.elevation_flow import IdentityElevationPayPalFlow
+        flow_cls = IdentityElevationPayPalFlow
+        logger.info("Buyer mode: identity_elevation (guest->member hydration before authorize)")
+
+    flow = flow_cls(
         ba_token=args.ba_token,
         user=user,
         card=card,
@@ -225,6 +280,7 @@ def main():
         mtr_runtime=args.mtr_runtime,
         risk_signals_mode=args.risk_signals_mode,
         sms_provider=sms_provider,
+        country_context=country_context,
     )
 
     try:

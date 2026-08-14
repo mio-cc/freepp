@@ -1111,18 +1111,7 @@ class PayPalSession:
             return synthetic
         if self._use_curl:
             kwargs = self._prepare_curl_kwargs(kwargs)
-        try:
-            resp: Any = self.client.get(url, **kwargs)
-        except Exception as exc:
-            if self.traffic_recorder is not None and req_id is not None:
-                self.traffic_recorder.record_response(
-                    req_id,
-                    "GET",
-                    url,
-                    None,
-                    error=str(exc),
-                )
-            raise
+        resp = self._request_with_retry("GET", url, kwargs, req_id)
         self._check_accept_ch(resp)
         self._sync_state_cookies()
         self._sync_state_response_headers(resp)
@@ -1130,6 +1119,47 @@ class PayPalSession:
             self.traffic_recorder.record_response(req_id, "GET", url, resp)
         logger.debug(f"  -> {resp.status_code} ({len(resp.content)} bytes)")
         return resp
+
+    def _request_with_retry(self, method: str, url: str, kwargs: dict[str, Any], req_id: Any):
+        """网络层重试: 仅对代理隧道/连接类瞬时错误重试 (502 CONNECT / 超时 / 断连)。
+
+        711 等住宅代理偶发 CONNECT 502, 重试 2 次即可跨过; HTTP 4xx/5xx 响应不重试。
+        """
+        import time as _time
+
+        max_tries = int(os.getenv("PAYPAL_SESSION_RETRY", "3"))
+        last_exc: Exception | None = None
+        for attempt in range(1, max_tries + 1):
+            try:
+                if method == "GET":
+                    return self.client.get(url, **kwargs)
+                return self.client.post(url, **kwargs)
+            except Exception as exc:
+                last_exc = exc
+                text = f"{type(exc).__name__}: {exc}"
+                markers = (
+                    "ProxyError", "CONNECT tunnel", "Connection reset",
+                    "RemoteDisconnected", "timed out", "Timeout", "502", "503",
+                )
+                if not any(m in text for m in markers):
+                    raise
+                if attempt >= max_tries:
+                    break
+                delay = 1.5 * attempt
+                logger.warning(
+                    "{} {} attempt {}/{} transient network error: {}; retrying in {:.1f}s",
+                    method, url, attempt, max_tries, text[:160], delay,
+                )
+                _time.sleep(delay)
+        assert last_exc is not None
+        if self.traffic_recorder is not None and req_id is not None:
+            try:
+                self.traffic_recorder.record_response(
+                    req_id, method, url, None, error=str(last_exc),
+                )
+            except Exception:
+                pass
+        raise last_exc
 
     def post(self, url: str, **kwargs) -> httpx.Response:
         logger.debug(f"POST {url}")
@@ -1169,17 +1199,7 @@ class PayPalSession:
             kwargs = self._prepare_curl_kwargs(kwargs, move_content=True)
             multipart = kwargs.get("multipart")
         try:
-            resp: Any = self.client.post(url, **kwargs)
-        except Exception as exc:
-            if self.traffic_recorder is not None and req_id is not None:
-                self.traffic_recorder.record_response(
-                    req_id,
-                    "POST",
-                    url,
-                    None,
-                    error=str(exc),
-                )
-            raise
+            resp = self._request_with_retry("POST", url, kwargs, req_id)
         finally:
             if multipart is not None:
                 try:

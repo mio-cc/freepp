@@ -1,0 +1,12 @@
+const { JSDOM } = require("jsdom");
+const dom = new JSDOM("", { url: "https://newassets.hcaptcha.com/", pretendToBeVisual: true });
+console.log("ua:", JSON.stringify(dom.window.navigator.userAgent));
+console.log("platform:", JSON.stringify(dom.window.navigator.platform));
+console.log("lang:", JSON.stringify(dom.window.navigator.language));
+console.log("languages:", JSON.stringify(dom.window.navigator.languages));
+console.log("plugins len:", dom.window.navigator.plugins && dom.window.navigator.plugins.length);
+console.log("webdriver:", dom.window.navigator.webdriver);
+console.log("hd:", dom.window.screen.height, "wd:", dom.window.screen.width);
+console.log("devPixelRatio:", dom.window.devicePixelRatio);
+console.log("mem:", dom.window.navigator.deviceMemory);
+console.log("cores:", dom.window.navigator.hardwareConcurrency);

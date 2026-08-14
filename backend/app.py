@@ -44,6 +44,19 @@ from core.orchestrator import AsyncChainOrchestrator, ConnectionManager
 from core.proxy_pool import proxy_pool
 from core.token_store import token_store
 
+def _parse_probe(raw):
+    try:
+        import json
+        d = json.loads(raw or '{}')
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _split_tags(raw):
+    return [x for x in (str(raw or '').split(',')) if x.strip()]
+
+
 
 # =============================================================================
 # 生命周期
@@ -169,7 +182,11 @@ async def websocket_endpoint(ws: WebSocket):
             {"id": t["id"], "email": t.get("email", ""), "sub": t.get("sub", ""),
              "account_id": t.get("account_id", ""), "plan_type": t.get("plan_type", ""),
              "register_method": t.get("register_method", "email"),
-             "expires_at": t.get("expires_at", ""), "status": t.get("status", "idle")}
+             "session_type": t.get("session_type", ""),
+             "probe": _parse_probe(t.get("probe", "")),
+             "tags": _split_tags(t.get("tags", "")),
+             "expires_at": t.get("expires_at", ""), "status": t.get("status", "idle"),
+             "source": t.get("source", "stripe")}
             for t in tokens
         ]
         sync["nodes"] = proxy_pool.list_nodes()
@@ -204,9 +221,14 @@ async def websocket_endpoint(ws: WebSocket):
                 tokens = await token_store.list_tokens()
                 sync["tokens"] = [
                     {"id": t["id"], "email": t.get("email", ""), "sub": t.get("sub", ""),
-                     "plan_type": t.get("plan_type", ""), "status": t.get("status", "idle"),
+                     "account_id": t.get("account_id", ""), "plan_type": t.get("plan_type", ""),
+                     "status": t.get("status", "idle"),
                      "register_method": t.get("register_method", "email"),
-                     "expires_at": t.get("expires_at", "")}
+                     "session_type": t.get("session_type", ""),
+                     "probe": _parse_probe(t.get("probe", "")),
+                     "tags": _split_tags(t.get("tags", "")),
+                     "expires_at": t.get("expires_at", ""),
+                     "source": t.get("source", "stripe")}
                     for t in tokens
                 ]
                 sync["nodes"] = proxy_pool.list_nodes()

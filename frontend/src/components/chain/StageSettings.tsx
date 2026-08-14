@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { STAGE_ORDER, STAGE_SHORT, STAGE_CN, BRANCH_CN } from "../../types";
-import type { StageName, BranchName, StageCfg, BranchCfg } from "../../types";
+import { STAGE_ORDER, STAGE_SHORT, STAGE_CN, OAICS_STAGE_ORDER, OAICS_STAGE_SHORT, OAICS_STAGE_CN, BRANCH_CN } from "../../types";
+import type { StageName, BranchName, StageCfg, BranchCfg, OaicsStageName, OaicsBranchCfg } from "../../types";
 
 /* ==========================================================================
    提链链路页共享组件: 国家下拉单选(auto+搜索) / 分支开关 / 段配置行 / 七段面板
@@ -32,12 +32,14 @@ export function CountrySelect({
   onChange,
   blocked = [],
   autoLabel = "AUTO · 自动轮换",
+  disabled = false,
 }: {
   value: string[];
   options: { code: string; capital?: string }[];
   onChange: (v: string[]) => void;
   blocked?: string[];
   autoLabel?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -54,6 +56,7 @@ export function CountrySelect({
   });
 
   const choose = (code: string) => {
+    if (disabled) return;
     onChange(code === AUTO ? [AUTO] : [code]);
     setOpen(false);
     setQuery("");
@@ -69,9 +72,13 @@ export function CountrySelect({
           justifyContent: "space-between",
           gap: 8,
           minHeight: 32,
+          ...(disabled
+            ? { cursor: "not-allowed", opacity: 0.65, background: "var(--bg-raised)", borderColor: "transparent" }
+            : {}),
         }}
-        onClick={() => setOpen(!open)}
+        onClick={() => !disabled && setOpen(!open)}
         type="button"
+        title={disabled ? "已跟随七段配置 · 只读" : undefined}
       >
         <span
           style={{
@@ -82,9 +89,9 @@ export function CountrySelect({
         >
           {sel === AUTO ? autoLabel : display.label}
         </span>
-        <span style={{ opacity: 0.6, fontSize: 10 }}>{open ? "▲" : "▼"}</span>
+        <span style={{ opacity: 0.6, fontSize: 10 }}>{disabled ? "🔒" : open ? "▲" : "▼"}</span>
       </button>
-      {open && (
+      {open && !disabled && (
         <div
           style={{
             position: "absolute",
@@ -208,6 +215,7 @@ export function BranchToggle({
 
 /* --------------------------------------------------------------------------
    段配置行 (国家下拉单选 + 超时/重试 —— 点击字段即编辑, 改动自动保存)
+   支持七段 (StageName) 与 OAICS 五段 (OaicsStageName) 共用
    -------------------------------------------------------------------------- */
 export function StageRow({
   stage,
@@ -215,12 +223,20 @@ export function StageRow({
   countries,
   onSave,
   saving,
+  shortName,
+  cnName,
+  isOaics = false,
+  desc,
 }: {
-  stage: StageName;
+  stage: StageName | OaicsStageName;
   cfg: StageCfg;
   countries: { code: string; capital?: string }[];
-  onSave: (stage: StageName, patch: Partial<StageCfg>) => void;
+  onSave: (stage: string, patch: Partial<StageCfg>) => void;
   saving: boolean;
+  shortName?: string;
+  cnName?: string;
+  isOaics?: boolean;
+  desc?: string;
 }) {
   const [sel, setSel] = useState<string[]>(cfg.countries || []);
   const [timeout, setTimeout] = useState(String(cfg.timeout));
@@ -244,6 +260,9 @@ export function StageRow({
     setActive(null);
   };
 
+  const short = shortName ?? (isOaics ? OAICS_STAGE_SHORT[stage as OaicsStageName] : STAGE_SHORT[stage as StageName]);
+  const cn = cnName ?? (isOaics ? OAICS_STAGE_CN[stage as OaicsStageName] : STAGE_CN[stage as StageName]);
+
   return (
     <div
       style={{
@@ -258,15 +277,13 @@ export function StageRow({
       <div style={{ display: "flex", alignItems: "center", gap: 8, width: 130, flexShrink: 0 }}>
         <span
           className="tag"
-          style={{
-            color: "var(--accent-strong)",
-            background: "var(--accent-dim)",
-            border: "1px solid rgba(108,108,248,.3)",
-          }}
+          style={isOaics
+            ? { color: "var(--oaics, #3b82f6)", background: "rgba(59,130,246,.12)", border: "1px solid rgba(59,130,246,.35)" }
+            : { color: "var(--accent-strong)", background: "var(--accent-dim)", border: "1px solid rgba(108,108,248,.3)" }}
         >
-          {STAGE_SHORT[stage]}
+          {short}
         </span>
-        <span style={{ fontWeight: 600, fontSize: 12.5 }}>{STAGE_CN[stage]}</span>
+        <span style={{ fontWeight: 600, fontSize: 12.5 }}>{cn}</span>
         <span className="muted" style={{ fontSize: 10.5, fontFamily: "var(--font-mono)" }}>
           {stage}
         </span>
@@ -281,6 +298,11 @@ export function StageRow({
             onSave(stage, { countries: v });
           }}
         />
+        {desc && (
+          <div className="muted" style={{ fontSize: 10.5, marginTop: 4, lineHeight: 1.4 }}>
+            {desc}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
@@ -345,6 +367,7 @@ export function StageRow({
 
 /* --------------------------------------------------------------------------
    七段管道设置面板 (提链链路页通用: 开关 + 双init出口 + 七段 + 流程条)
+   支持子分栏: paypal 分支含 oaics 五段 (cs 七段 / OAICS 五段)
    -------------------------------------------------------------------------- */
 export function StageSettingsPanel({
   branchName,
@@ -353,6 +376,8 @@ export function StageSettingsPanel({
   blocked,
   onSaveStage,
   onSaveFlags,
+  onSaveOaicsStage,
+  onSaveOaicsFlags,
   savingStage,
   savingFlags,
 }: {
@@ -360,6 +385,233 @@ export function StageSettingsPanel({
   branch: BranchCfg;
   countries: { code: string; capital?: string }[];
   blocked?: string[];
+  onSaveStage: (stage: StageName, patch: Partial<StageCfg>) => void;
+  onSaveFlags: (patch: Partial<BranchCfg>) => void;
+  onSaveOaicsStage?: (stage: OaicsStageName, patch: Partial<StageCfg>) => void;
+  onSaveOaicsFlags?: (patch: Partial<OaicsBranchCfg>) => void;
+  savingStage: string;
+  savingFlags: boolean;
+}) {
+  const stages = branch.stages || {};
+  const hasOaics = !!branch.oaics;
+  const [tab, setTab] = useState<"cs" | "oaics">("cs");
+  const chanLabel: Record<string, string> = {
+    paypal: "PayPal 渠道",
+    momo: "MoMo 渠道",
+    card: "卡片渠道",
+    link: "链接渠道",
+    pix: "PIX 渠道",
+    ideal: "iDEAL 渠道",
+    upi: "UPI 渠道",
+    kakao: "Kakao Pay 渠道",
+    blik: "BLIK 渠道",
+    twint: "TWINT 渠道",
+  };
+
+  if (hasOaics) {
+    return (
+      <div className="card settings-panel">
+        <div className="card-head">
+          <span className="card-title">
+            {BRANCH_CN[branchName]} · 提链管道
+          </span>
+          <span className="card-hint">
+            渠道校验: {chanLabel[branch.channel] || branch.channel} · token 库: {branch.token_source || branchName}
+          </span>
+        </div>
+        <div className="pipeline-tabs" style={{ display: "flex", gap: 6, padding: "10px 16px 0" }}>
+          <button
+            className={`btn btn-sm ${tab === "cs" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => setTab("cs")}
+          >
+            原七段 (cs_live / hosted)
+          </button>
+          <button
+            className={`btn btn-sm ${tab === "oaics" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => setTab("oaics")}
+            style={tab === "oaics" ? { background: "var(--oaics, #3b82f6)", borderColor: "var(--oaics, #3b82f6)" } : { color: "var(--oaics, #3b82f6)" }}
+          >
+            OAICS 五段 (custom 纯 HTTP) 🔒
+          </button>
+        </div>
+        {tab === "cs" ? (
+          <CsStages
+            branchName={branchName}
+            branch={branch}
+            countries={countries}
+            onSaveStage={onSaveStage}
+            onSaveFlags={onSaveFlags}
+            savingStage={savingStage}
+            savingFlags={savingFlags}
+          />
+        ) : (
+          <OaicsStages
+            branchName={branchName}
+            oaics={branch.oaics!}
+            csBranch={branch}
+            countries={countries}
+            onSaveOaicsStage={onSaveOaicsStage || (() => {})}
+            onSaveOaicsFlags={onSaveOaicsFlags || (() => {})}
+            savingFlags={savingFlags}
+          />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <CsStages
+      branchName={branchName}
+      branch={branch}
+      countries={countries}
+      onSaveStage={onSaveStage}
+      onSaveFlags={onSaveFlags}
+      savingStage={savingStage}
+      savingFlags={savingFlags}
+    />
+  );
+}
+
+function OaicsStages({
+  branchName,
+  oaics,
+  csBranch,
+  countries,
+  onSaveOaicsStage,
+  onSaveOaicsFlags,
+  savingFlags,
+}: {
+  branchName: BranchName;
+  oaics: OaicsBranchCfg;
+  /** 七段配置 (只读映射数据源: oaics 五段跟随七段) */
+  csBranch: BranchCfg;
+  countries: { code: string; capital?: string }[];
+  onSaveOaicsStage: (stage: OaicsStageName, patch: Partial<StageCfg>) => void;
+  onSaveOaicsFlags: (patch: Partial<OaicsBranchCfg>) => void;
+  savingFlags: boolean;
+}) {
+  /* 2026-08-13: oaics 子配置已废弃只读 —— 五段出口国家/账单国/币种跟随七段
+     (后端 pick_oaics_countries 直接映射, 本页仅展示, 控件全部禁用) */
+  const MAP_7: Record<OaicsStageName, StageName> = {
+    checkout: "checkout",
+    taxes: "update",
+    provider: "provider",
+    confirm: "approve",
+    resolve: "resolve",
+  };
+  const csStages = csBranch.stages || {};
+  const csBilling = csBranch.billing_country || "auto";
+  const csCountry = (s: StageName): string => {
+    const c = (csStages[s] as StageCfg)?.countries;
+    if (!c || c.length === 0 || c[0] === "auto") return "auto";
+    return c[0];
+  };
+  return (
+    <>
+      <div className="card-body" style={{ borderTop: "1px solid var(--border-faint)" }}>
+        <div className="section-head">
+          <span className="section-title">OAICS 出口五段 🔒 只读</span>
+          <span className="muted" style={{ fontSize: 11.5 }}>
+            oaics_ 会话 ✓ 五段 · 跟随七段配置 (下方为映射结果, 不可编辑)
+          </span>
+        </div>
+        <div
+          className="note"
+          style={{ marginBottom: 10, fontSize: 11.5, padding: "6px 10px" }}
+        >
+          OAICS 五段出口国家 = 七段对应段: checkout←结账 · taxes←更新 · provider←支付商 ·
+          confirm←批准 · resolve←解析; 账单国/币种 = 七段账单国 ({csBilling})
+          {" · "}
+          <span className="muted">轮换/跟随以七段配置与链路运行为准</span>
+        </div>
+        <div className="setting-row">
+          <span className="setting-label">账单国</span>
+          <div className="setting-control" style={{ flex: 1, gap: 10 }}>
+            <CountrySelect
+              value={[csBilling]}
+              options={countries}
+              autoLabel="AUTO · 跟随 checkout 段"
+              onChange={() => {}}
+              disabled
+            />
+            <span className="muted" style={{ fontSize: 11.5, width: 90, flexShrink: 0 }}>
+              {csBilling !== "auto" ? "固定账单国 (七段)" : "跟随 checkout 段 (七段)"}
+            </span>
+          </div>
+        </div>
+        <div className="setting-row">
+          <span className="setting-label">总尝试</span>
+          <div className="setting-control" style={{ flex: 1, gap: 10 }}>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              value={csBranch.attempts || 8}
+              disabled
+              style={{ width: 140, opacity: 0.65, cursor: "not-allowed", background: "var(--bg-raised)" }}
+            />
+            <span className="muted" style={{ fontSize: 11.5, width: 90, flexShrink: 0 }}>
+              跟随七段 (每 Token 尝试轮数)
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="card-body" style={{ borderTop: "1px solid var(--border-faint)" }}>
+        {OAICS_STAGE_ORDER.map((stage) => {
+          const src = MAP_7[stage];
+          const cc = csCountry(src);
+          return (
+            <div key={stage} className="setting-row">
+              <span className="setting-label">
+                {OAICS_STAGE_SHORT[stage]} {OAICS_STAGE_CN[stage]}
+              </span>
+              <div className="setting-control" style={{ flex: 1, gap: 10 }}>
+                <CountrySelect
+                  value={[cc]}
+                  options={countries}
+                  onChange={() => {}}
+                  disabled
+                />
+                <span className="muted" style={{ fontSize: 11.5, width: 110, flexShrink: 0 }}>
+                  ← 七段 {STAGE_CN[src]} · 只读
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="card-body" style={{ borderTop: "1px solid var(--border-faint)" }}>
+        <div className="flow-chain" style={{ borderBottom: "none", padding: "2px 0 0" }}>
+          {OAICS_STAGE_ORDER.map((stage, i) => {
+            const cc = csCountry(MAP_7[stage]);
+            const label = cc === "auto" ? "AUTO" : `${flag(cc)}${cc}`;
+            return (
+              <span key={stage} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <span className="flow-node" style={{ borderColor: "var(--oaics, #3b82f6)", color: "var(--oaics, #3b82f6)" }}>
+                  {OAICS_STAGE_SHORT[stage]} {label}
+                </span>
+                {i < OAICS_STAGE_ORDER.length - 1 && <span className="flow-arrow">→</span>}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function CsStages({
+  branchName,
+  branch,
+  countries,
+  onSaveStage,
+  onSaveFlags,
+  savingStage,
+  savingFlags,
+}: {
+  branchName: BranchName;
+  branch: BranchCfg;
+  countries: { code: string; capital?: string }[];
   onSaveStage: (stage: StageName, patch: Partial<StageCfg>) => void;
   onSaveFlags: (patch: Partial<BranchCfg>) => void;
   savingStage: string;
@@ -495,7 +747,7 @@ export function StageSettingsPanel({
               stage={stage}
               cfg={sc}
               countries={countries}
-              onSave={(st, patch) => onSaveStage(st, patch)}
+              onSave={(st, patch) => onSaveStage(st as StageName, patch)}
               saving={savingStage === stage}
             />
           );

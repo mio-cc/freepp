@@ -1,6 +1,17 @@
 import { memo, useMemo, useState } from "react";
-import { STAGE_ORDER, STAGE_SHORT, STAGE_CN } from "../../types";
-import type { ChainState } from "../../types";
+import { STAGE_ORDER, STAGE_SHORT, STAGE_CN, OAICS_STAGE_CN } from "../../types";
+import type { ChainState, StageName, OaicsStageName } from "../../types";
+
+/** OAICS 5 段映射到 7 段列: 不走的段 (init/poll) 为 undefined, 直接跳过 */
+const OAICS_COL_MAP: Record<StageName, OaicsStageName | undefined> = {
+  checkout: "checkout",
+  init: undefined,
+  update: "taxes",
+  provider: "provider",
+  approve: "confirm",
+  poll: undefined,
+  resolve: "resolve",
+};
 
 const fmtDur = (sec: number) => {
   if (sec == null || isNaN(sec)) return "—";
@@ -65,9 +76,12 @@ function ChainTableInner({ chainList, onClick }: Props) {
             <tr>
               <th style={{ width: 80 }}>链路</th>
               <th>Email / Sub</th>
+              <th style={{ textAlign: "center", minWidth: 46 }} title="S0 会话类型探测 (用 checkout 段 IP)">
+                探
+              </th>
               {STAGE_ORDER.map((s) => (
                 <th key={s} style={{ textAlign: "center", minWidth: 58 }} title={STAGE_CN[s]}>
-                  {STAGE_SHORT[s]}
+                  <span style={{ color: "var(--text-2)" }}>{STAGE_SHORT[s]}</span>
                 </th>
               ))}
               <th style={{ width: 64 }}>耗时</th>
@@ -78,7 +92,10 @@ function ChainTableInner({ chainList, onClick }: Props) {
           <tbody>
             {shown.map(({ id, cs }) => {
               const email = cs.email || cs.tokenSub || id;
-              const elapsed = cs.startTime ? (Date.now() - cs.startTime) / 1000 : 0;
+              // 终端状态使用后端固化的 elapsed, 运行中才实时计时
+              const elapsed =
+                cs.elapsed ??
+                (cs.status === "running" && cs.startTime ? (Date.now() - cs.startTime) / 1000 : 0);
               const handleClick = () => {
                 if (cs.status === "success" && cs.url && onClick) {
                   let meta = `chain: ${id}`;
@@ -91,6 +108,9 @@ function ChainTableInner({ chainList, onClick }: Props) {
                 <tr key={id} className={cs.status === "running" ? "row-selected" : ""}>
                   <td>
                     <span className="tag">#{id.slice(0, 8)}</span>
+                    {cs.linkMode === "oaics" && (
+                      <span className="tag" style={{ color: "var(--oaics, #3b82f6)", background: "rgba(59,130,246,.12)", border: "1px solid rgba(59,130,246,.35)", fontSize: 10, marginLeft: 4 }}>OAICS</span>
+                    )}
                     {cs.channelDetect && (
                       <div className="cell-sub" style={{ marginTop: 2 }}>
                         <span
@@ -112,11 +132,50 @@ function ChainTableInner({ chainList, onClick }: Props) {
                       attempt {cs.attempt || 1}
                     </div>
                   </td>
+                  <td style={{ textAlign: "center" }}>
+                    {(() => {
+                      const sd = cs.stages["probe"];
+                      const det = cs.detected
+                        ? cs.detected === "oaics" ? "OAICS" : cs.detected === "cs_live" ? "cs_live" : cs.detected
+                        : "";
+                      let pcls = "stage-cell chain-cell";
+                      let plabel = "·";
+                      if (sd?.state === "ok") {
+                        pcls += " ok";
+                        // 探测出 oaics 会话: 与 oaics 分段一致用淡粉区分
+                        if (cs.detected === "oaics") pcls += " oaics";
+                        plabel = det || sd.country || "✓";
+                      } else if (sd?.state === "fail") {
+                        pcls += " fail";
+                        plabel = "✗";
+                      } else if (sd?.state === "run") {
+                        pcls += " run";
+                        plabel = "探测中";
+                      }
+                      return (
+                        <span className={pcls} title={`会话类型探测 (checkout 段 IP)${sd?.country ? " · " + sd.country : ""}${det ? " · " + det : ""}`}>
+                          <span className="stage-dot" />
+                          <span className="stage-try">{plabel}</span>
+                        </span>
+                      );
+                    })()}
+                  </td>
                   {STAGE_ORDER.map((s) => {
-                    const sd = cs.stages[s];
-                    let cls = "stage-cell chain-cell";
+                    const isOaics = cs.linkMode === "oaics";
+                    let oaicsSrc: OaicsStageName | undefined;
+                    if (isOaics) oaicsSrc = OAICS_COL_MAP[s];
+                    const sd = isOaics
+                      ? (oaicsSrc ? cs.stages[oaicsSrc] : undefined)
+                      : cs.stages[s];
+                    const title = isOaics && oaicsSrc
+                      ? `${OAICS_STAGE_CN[oaicsSrc]} (OAICS)${sd?.country ? " · " + sd.country : ""}`
+                      : `${STAGE_CN[s]}${sd?.country ? " · " + sd.country : ""}`;
+                    let cls = "stage-cell chain-cell" + (isOaics ? " oaics" : "");
                     let label = "";
-                    if (sd?.state === "ok") {
+                    if (!oaicsSrc && isOaics) {
+                      // oaics 不走的段: 直接跳过
+                      label = "·";
+                    } else if (sd?.state === "ok") {
                       cls += " ok";
                       label = sd.country || "✓";
                     } else if (sd?.state === "fail") {
@@ -130,10 +189,7 @@ function ChainTableInner({ chainList, onClick }: Props) {
                     }
                     return (
                       <td key={s} style={{ textAlign: "center" }}>
-                        <span
-                          className={cls}
-                          title={`${STAGE_CN[s]}${sd?.country ? " · " + sd.country : ""}`}
-                        >
+                        <span className={cls} title={title}>
                           <span className="stage-dot" />
                           <span className="stage-try">{label}</span>
                         </span>
@@ -149,8 +205,8 @@ function ChainTableInner({ chainList, onClick }: Props) {
                     {cs.status === "success" ? (
                       <span className="badge badge-success">✓ 成功</span>
                     ) : cs.status === "failed" ? (
-                      <span className="badge badge-danger" title={cs.reason || ""}>
-                        ✗ {cs.reason || "失败"}
+                      <span className="badge badge-danger" title={cs.reasonText || cs.reason || ""}>
+                        ✗ {cs.reasonText || cs.reason || "失败"}
                       </span>
                     ) : cs.status === "running" ? (
                       <span className="badge badge-info">运行中</span>

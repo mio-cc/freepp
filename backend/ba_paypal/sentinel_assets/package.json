@@ -1,0 +1,9 @@
+{
+  "name": "sentinel-assets",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "undici": "8.7.0"
+  }
+}

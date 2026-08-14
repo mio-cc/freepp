@@ -45,8 +45,19 @@ RE_IDEAL_URL = re.compile(r"^https://[^\s\"']+")
 RE_UPI_URL = re.compile(r"^https://payments\.stripe\.com/upi/[^\s\"']+")
 RE_UPI_URL_SEARCH = re.compile(r"https://payments\.stripe\.com/upi/[^\s\"']+")
 RE_KAKAO_URL = re.compile(r"^https://[^\s\"']+(?:nicepay|kakao)[^\s\"']*", re.I)
+RE_NAVER_URL = re.compile(r"^https://[^\s\"']+(?:nicepay|naver)[^\s\"']*", re.I)
+RE_GOPAY_URL = re.compile(r"^https://[^\s\"']+(?:midtrans|snap)[^\s\"']*", re.I)
+RE_BIZUM_URL = re.compile(r"^https://checkout\.stripe\.com/c/[^\s\"']+")
+RE_BIZUM_SEARCH = re.compile(r"https://checkout\.stripe\.com/c/[^\s\"']+")
 RE_BLIK_URL = re.compile(r"^https://[^\s\"']+")
 RE_TWINT_URL = re.compile(r"^https://[^\s\"']+")
+# 钱包渠道 (wallet_adapter 移植): gcash=Adyen, grabpay=Grab, qris=Midtrans
+RE_GCASH_URL = re.compile(r"^https://checkoutshopper-live\.adyen\.com/[^\s\"']+")
+RE_GCASH_SEARCH = re.compile(r"https://checkoutshopper[^\"'\s<>]+adyen\.com/[^\s\"']+")
+RE_GRABPAY_URL = re.compile(r"^https://[^\s\"']*(?:grab\.com|grabpay\.com)[^\s\"']*", re.I)
+RE_GRABPAY_SEARCH = re.compile(r"https://[^\s\"']*(?:grab\.com|grabpay\.com)[^\s\"']*", re.I)
+RE_QRIS_URL = re.compile(r"^https://[^\s\"']*(?:midtrans|snap)[^\s\"']*", re.I)
+RE_QRIS_SEARCH = re.compile(r"https://[^\s\"']*(?:midtrans|snap)[^\s\"']*", re.I)
 
 
 def _pm_type(branch: str) -> str:
@@ -59,6 +70,12 @@ def _pm_type(branch: str) -> str:
         "kakao": "kakao",
         "blik": "blik",
         "twint": "twint",
+        "bizum": "bizum",
+        "gopay": "gopay",
+        "naver_pay": "naver_pay",
+        "gcash": "gcash",
+        "grabpay": "grabpay",
+        "qris": "gopay",  # qris 在 Stripe 侧以 gopay PM 种子建立 (midtrans charge 分支)
         "grok": "card",
         "direct": "card",  # 直卡提链: 无 Stripe PM, 仅产出 checkout 短链接
     }.get(branch, branch)
@@ -67,8 +84,11 @@ def _pm_type(branch: str) -> str:
 def _pm_extra(branch: str, country: str = "") -> dict[str, str]:
     """PM body 额外字段（按分支）。"""
     if branch == "pix":
-        # pix-core-open-source: billing_details[tax_id] 放 CPF（多形态轮试由调用方做）
-        return {"billing_details[tax_id]": ""}
+        # pix-core-open-source: billing_details[tax_id] 放 CPF (调用方已生成有效 CPF)
+        from .link_helpers import generate_valid_cpf
+
+        cpf = generate_valid_cpf()
+        return {"billing_details[tax_id]": cpf}
     return {}
 
 
@@ -86,6 +106,20 @@ def _resolve_regexes(branch: str) -> tuple[re.Pattern | None, re.Pattern | None]
         return RE_PIX_URL, RE_PIX_QR
     if branch == "kakao":
         return RE_KAKAO_URL, RE_KAKAO_URL
+    if branch == "naver_pay":
+        return RE_NAVER_URL, RE_NAVER_URL
+    if branch == "gopay":
+        return RE_GOPAY_URL, RE_GOPAY_URL
+    if branch == "qris":
+        return RE_QRIS_URL, RE_QRIS_SEARCH
+    if branch == "gcash":
+        return RE_GCASH_URL, RE_GCASH_SEARCH
+    if branch == "grabpay":
+        return RE_GRABPAY_URL, RE_GRABPAY_SEARCH
+    if branch == "bizum":
+        # bizum 无渠道跳转 (await_authorization), 产出 hosted checkout 页由用户
+        # 在手机上完成 Bizum 授权; extract_redirect 兜底到 stripe_hosted_url
+        return RE_BIZUM_URL, RE_BIZUM_SEARCH
     if branch == "ideal":
         return RE_IDEAL_URL, RE_IDEAL_URL
     if branch == "blik":

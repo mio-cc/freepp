@@ -18,7 +18,7 @@ const ROOT = path.join(__dirname, '..');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const req = String(input.req || '').trim();
 const hswCode = fs.readFileSync(input.hswPath || path.join(ROOT, '_hsw_semi.js'), 'utf8');
-const UA0 = input.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
+const UA0 = input.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36';
 
 const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', {
     url: 'https://newassets.hcaptcha.com/',
@@ -59,6 +59,13 @@ win.btoa = (s) => Buffer.from(s, 'binary').toString('base64');
 
 Object.defineProperty(win.navigator, 'userAgent', { get: () => UA0, configurable: true });
 Object.defineProperty(win.navigator, 'platform', { get: () => 'Win32', configurable: true });
+Object.defineProperty(win.navigator, 'appVersion', { get: () => UA0.replace('Mozilla/', ''), configurable: true });
+Object.defineProperty(win.navigator, 'appName', { get: () => 'Netscape', configurable: true });
+Object.defineProperty(win.navigator, 'product', { get: () => 'Gecko', configurable: true });
+Object.defineProperty(win.navigator, 'appCodeName', { get: () => 'Mozilla', configurable: true });
+try { Object.defineProperty(win.navigator, 'pdfViewerEnabled', { get: () => true, configurable: true }); } catch (_) {}
+Object.defineProperty(win.navigator, 'deviceMemory', { get: () => 8, configurable: true });
+Object.defineProperty(win.navigator, 'hardwareConcurrency', { get: () => 8, configurable: true });
 Object.defineProperty(win.navigator, 'language', { get: () => 'zh-CN', configurable: true });
 Object.defineProperty(win.navigator, 'languages', { get: () => ['zh-CN', 'zh'], configurable: true });
 Object.defineProperty(win.navigator, 'webdriver', { get: () => false, configurable: true });
@@ -66,10 +73,10 @@ Object.defineProperty(win.navigator, 'vendor', { get: () => 'Google Inc.', confi
 try {
     Object.defineProperty(win.navigator, 'plugins', { get: () => [
         { name: 'PDF Viewer', filename: 'internal-pdf-viewer' },
-        { name: 'Chrome PDF Viewer', filename: 'chrome-pdf-viewer' },
-        { name: 'Chromium PDF Viewer', filename: 'chromium-pdf-viewer' },
-        { name: 'Microsoft Edge PDF Viewer', filename: 'ms-pdf-viewer' },
-        { name: 'WebKit built-in PDF', filename: 'webkit-pdf-viewer' },
+        { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer' },
+        { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer' },
+        { name: 'Microsoft Edge PDF Viewer', filename: 'internal-pdf-viewer' },
+        { name: 'WebKit built-in PDF', filename: 'internal-pdf-viewer' },
     ], configurable: true });
 } catch (_) {}
 try {
@@ -88,11 +95,11 @@ try {
         mobile: false,
         platform: 'Windows',
         getHighEntropyValues: (hints) => Promise.resolve({
-            architecture: 'x86', bitness: '64', model: '', platformVersion: '15.0.0',
-            uaFullVersion: '151.0.0.0', fullVersionList: [
+            architecture: 'x86', bitness: '64', model: '', platformVersion: '10.0.0',
+            uaFullVersion: '151.0.7922.72', fullVersionList: [
                 { brand: 'Not=A?Brand', version: '99.0.0.0' },
-                { brand: 'Google Chrome', version: '151.0.0.0' },
-                { brand: 'Chromium', version: '151.0.0.0' },
+                { brand: 'Google Chrome', version: '151.0.7922.72' },
+                { brand: 'Chromium', version: '151.0.7922.72' },
             ], wow64: false,
         }),
         toJSON: () => ({ brands: [
@@ -103,17 +110,21 @@ try {
     }), configurable: true });
 } catch (_) {}
 
-Object.defineProperty(win.screen, 'width', { get: () => 1440, configurable: true });
-Object.defineProperty(win.screen, 'height', { get: () => 900, configurable: true });
-Object.defineProperty(win.screen, 'availWidth', { get: () => 1440, configurable: true });
-Object.defineProperty(win.screen, 'availHeight', { get: () => 900, configurable: true });
+Object.defineProperty(win.screen, 'width', { get: () => 1536, configurable: true });
+Object.defineProperty(win.screen, 'height', { get: () => 864, configurable: true });
+Object.defineProperty(win.screen, 'availWidth', { get: () => 1536, configurable: true });
+Object.defineProperty(win.screen, 'availHeight', { get: () => 824, configurable: true });
 Object.defineProperty(win.screen, 'colorDepth', { get: () => 24, configurable: true });
 Object.defineProperty(win.screen, 'pixelDepth', { get: () => 24, configurable: true });
-Object.defineProperty(win, 'devicePixelRatio', { get: () => 1, configurable: true });
-Object.defineProperty(win, 'innerWidth', { get: () => 1440, configurable: true });
-Object.defineProperty(win, 'innerHeight', { get: () => 900, configurable: true });
-Object.defineProperty(win, 'outerWidth', { get: () => 1440, configurable: true });
-Object.defineProperty(win, 'outerHeight', { get: () => 900, configurable: true });
+Object.defineProperty(win, 'devicePixelRatio', { get: () => 1.25, configurable: true });
+Object.defineProperty(win, 'innerWidth', { get: () => 1540, configurable: true });
+Object.defineProperty(win, 'innerHeight', { get: () => 788, configurable: true });
+Object.defineProperty(win, 'outerWidth', { get: () => 1554, configurable: true });
+Object.defineProperty(win, 'outerHeight', { get: () => 882, configurable: true });
+Object.defineProperty(win, 'screenX', { get: () => 10, configurable: true });
+Object.defineProperty(win, 'screenY', { get: () => 10, configurable: true });
+Object.defineProperty(win, 'screenLeft', { get: () => 10, configurable: true });
+Object.defineProperty(win, 'screenTop', { get: () => 10, configurable: true });
 
 const fakeAudioCtx = {
     sampleRate: 48000,
@@ -135,6 +146,20 @@ if (typeof win.webkitAudioContext !== 'function') win.webkitAudioContext = win.A
 if (typeof win.OfflineAudioContext !== 'function') win.OfflineAudioContext = function () { return fakeAudioCtx; };
 
 try { polyfill.install(win); } catch (e) {}
+try { Object.defineProperty(win.document, 'characterSet', { get: () => 'windows-1252', configurable: true }); } catch (_) {}
+try { Object.defineProperty(win.document, 'compatMode', { get: () => 'BackCompat', configurable: true }); } catch (_) {}
+try { Object.defineProperty(win.document, 'domain', { get: () => 'newassets.hcaptcha.com', configurable: true }); } catch (_) {}
+try {
+    if (!win.document.all) {
+        Object.defineProperty(win.document, 'all', { get: () => win.document.querySelectorAll('*'), configurable: true });
+    }
+} catch (_) {}
+try { Object.defineProperty(win.document, 'currentScript', { get: () => null, configurable: true }); } catch (_) {}
+try { Object.defineProperty(win.document, 'fullscreenElement', { get: () => null, configurable: true }); } catch (_) {}
+try { Object.defineProperty(win.document, 'pictureInPictureElement', { get: () => null, configurable: true }); } catch (_) {}
+try { Object.defineProperty(win.document, 'pointerLockElement', { get: () => null, configurable: true }); } catch (_) {}
+try { Object.defineProperty(win.document, 'scrollingElement', { get: () => win.document.body, configurable: true }); } catch (_) {}
+try { Object.defineProperty(win.document, 'font', { get: () => ({ check: () => true, load: () => Promise.resolve([]) }), configurable: true }); } catch (_) {}
 
 win.__unhandled = [];
 process.on('uncaughtException', (e) => {
@@ -192,17 +217,17 @@ function asExt18(enc) {
                 topLevel: {
                     st: now - 2000,
                     sc: {
-                        width: 1440,
-                        height: 900,
-                        availWidth: 1440,
-                        availHeight: 900,
+                        width: 1536,
+                        height: 864,
+                        availWidth: 1536,
+                        availHeight: 864,
                         colorDepth: 24,
                     },
                     nv: {
                         userAgent: input.userAgent,
                         platform: 'Windows',
                         webdriver: false,
-                        hardwareConcurrency: 10,
+                        hardwareConcurrency: 8,
                         deviceMemory: 8,
                     },
                     dr: 'https://b.stripecdn.com/',
@@ -220,7 +245,7 @@ function asExt18(enc) {
             pst: false,
             p_e: JSON.stringify({
                 st: now - 2500,
-                sc: { width: 1440, height: 900 },
+                sc: { width: 1536, height: 864 },
                 nv: {
                     userAgent: input.userAgent,
                     platform: 'Windows',

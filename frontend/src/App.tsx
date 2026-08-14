@@ -54,6 +54,24 @@ export default function App() {
           {view === "twint" && (
             <BranchConfigView branchName="twint" title="TWINT 提链" sub="七段出口配置 (TWINT 渠道) · CH 账单 CHF" defaultCountry="CH" updateCountry="VN" />
           )}
+          {view === "bizum" && (
+            <BranchConfigView branchName="bizum" title="Bizum 提链" sub="七段出口配置 (Bizum 渠道) · ES 账单 EUR · 手机授权提链" defaultCountry="ES" updateCountry="VN" />
+          )}
+          {view === "gopay" && (
+            <BranchConfigView branchName="gopay" title="GoPay 提链" sub="七段出口配置 (GoPay 渠道) · ID 账单 IDR · Midtrans 落地" defaultCountry="ID" updateCountry="VN" />
+          )}
+          {view === "naver_pay" && (
+            <BranchConfigView branchName="naver_pay" title="Naver Pay 提链" sub="七段出口配置 (Naver Pay 渠道) · KR 账单 KRW · NicePay 落地" defaultCountry="KR" updateCountry="VN" />
+          )}
+          {view === "gcash" && (
+            <BranchConfigView branchName="gcash" title="GCash 提链" sub="七段出口配置 (GCash 渠道) · PH 账单 PHP · Adyen 落地" defaultCountry="PH" updateCountry="VN" />
+          )}
+          {view === "grabpay" && (
+            <BranchConfigView branchName="grabpay" title="GrabPay 提链" sub="七段出口配置 (GrabPay 渠道) · PH 账单 PHP · Grab 落地" defaultCountry="PH" updateCountry="VN" />
+          )}
+          {view === "qris" && (
+            <BranchConfigView branchName="qris" title="QRIS 提链" sub="七段出口配置 (QRIS 渠道) · ID 账单 IDR · Midtrans Charge" defaultCountry="ID" updateCountry="VN" />
+          )}
           {view === "direct" && <DirectView />}
           {view === "paypal" && <PayPalView />}
           {view === "direct_pay" && <DirectPayView />}

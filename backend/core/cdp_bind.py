@@ -73,6 +73,14 @@ class CdpClient:
                         f.set_exception(RuntimeError(msg["error"]))
                     else:
                         f.set_result(msg.get("result", {}))
+                else:
+                    # 事件消息: 分发到 on_event 回调 (Network.requestWillBeSent 等)
+                    handler = getattr(self, "on_event", None)
+                    if handler is not None:
+                        try:
+                            handler(msg)
+                        except Exception:
+                            pass
         except Exception:
             self._connected = False
 

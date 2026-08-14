@@ -356,10 +356,11 @@ class AsyncProxyPool:
 
         # 1) 优先 711 住宅代理
         if self.proxy711.enabled and self.proxy711._healthy:
-            region = self.proxy711.pick_country(stage)
+            # 优先使用调用方传入国家(分支配置); 无指定时按段配置
+            region = country if country else self.proxy711.pick_country(stage)
             proxy_url = self.proxy711.build_proxy(
                 region=region,
-                sess_time=30,
+                sess_time=settings.proxy_sess_time,
                 sticky=True,
             )
             return proxy_url

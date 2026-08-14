@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 from .billing import billing_currency
@@ -32,6 +33,9 @@ CHANNEL_ALIASES: dict[str, tuple[str, ...]] = {
     "ideal": ("ideal",),
     "upi": ("upi",),
     "kakao": ("kakao", "kakaopay", "kakao_pay"),
+    "naver_pay": ("naver_pay", "naverpay"),
+    "bizum": ("bizum",),
+    "gopay": ("gopay", "go_pay", "gopay_id"),
     "blik": ("blik",),
     "twint": ("twint",),
     "paypal": ("paypal",),
@@ -73,6 +77,157 @@ def _init_once(proxy: str, pk: str, cs: str, timeout: int) -> dict[str, Any]:
         return {"status": r.status_code, "ok": r.status_code < 400, "init": d}
     finally:
         s.close()
+
+
+def probe_token(
+    access_token: str,
+    session_token: str = "",
+    proxy: str = "",
+    country: str = "US",
+    currency: str = "",
+    timeout: int = 20,
+) -> dict[str, Any]:
+    """完整账号探测: 会话类型 + token 状态 + 优惠资格 + paypal 渠道。
+
+    1. checkout(无 promo): 判别 cs_live_* / oaics_*, 401/429 判 token 状态
+    2. cs_live 时 init: 记录 amount_due 与 payment_method_types (paypal 是否可用)
+    3. update 注入 promo: 200=有优惠资格 / 403 promotion not available=无资格
+
+    返回 {session_type, cs, entity, token, token_error, promo, paypal, amount,
+          status, detail, error}
+    """
+    cc = (country or "US").upper()
+    cur = currency or billing_currency(cc)
+    out: dict[str, Any] = {
+        "session_type": "", "cs": "", "entity": "",
+        "token": "ok", "token_error": "",
+        "promo": "", "paypal": False, "amount": None,
+        "status": 0, "detail": "", "error": "",
+    }
+    s = chatgpt_session(proxy, access_token, session_token)
+    path = "/backend-api/payments/checkout"
+    payload = {
+        "entry_point": "all_plans_pricing_modal",
+        "plan_name": "chatgptplusplan",
+        "billing_details": {"country": cc, "currency": cur},
+        "checkout_ui_mode": "custom",
+        "check_card_proxy": True,
+    }
+    # 2026-08-13: 探测建单对齐生产链路 (warmup + common_headers + custom 模式),
+    # 保证探测出的会话类型与真实提链建单一致。
+    device_id = str(uuid.uuid4().hex[:16])
+    try:
+        from . import oaics_proto as _op
+        _op.warmup_chatgpt_page(s, country=cc, device_id=device_id)
+        probe_headers = {
+            **_op.common_headers(country=cc, device_id=device_id,
+                                 referer="https://chatgpt.com/", route=path),
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Origin": "https://chatgpt.com",
+        }
+    except Exception:
+        probe_headers = {"Referer": "https://chatgpt.com/",
+                         "x-openai-target-path": path, "x-openai-target-route": path}
+    try:
+        try:
+            r = _req(s, "POST", "https://chatgpt.com" + path, json=payload,
+                     headers=probe_headers,
+                     timeout=max(10, timeout))
+        except Exception as e:
+            out["error"] = f"checkout 请求失败: {type(e).__name__}: {str(e)[:150]}"
+            return out
+        out["status"] = r.status_code
+        try:
+            d = r.json()
+        except Exception:
+            d = {"raw": (r.text or "")[:500]}
+        d = d if isinstance(d, dict) else {}
+        # 401 错误体可能为 {"error": {"message", "code"}} 或 {"detail": "..."}
+        err = d.get("error") if isinstance(d.get("error"), dict) else {}
+        detail = str(d.get("detail") or err.get("message") or d.get("message") or "")
+        err_code = str(err.get("code") or "")
+        out["detail"] = detail[:160]
+        if r.status_code >= 400:
+            if r.status_code == 401:
+                low = (detail + " " + err_code).lower()
+                if "invalidated" in low or "token_invalidated" in low:
+                    out["token"] = "invalidated"
+                    out["token_error"] = "token 已吊销"
+                elif "expired" in low or "token_expired" in low:
+                    out["token"] = "expired"
+                    out["token_error"] = "token 已过期"
+                else:
+                    out["token"] = "unauthorized"
+                    out["token_error"] = f"401 未授权: {detail[:40]}"
+            elif r.status_code == 429:
+                out["token"] = "rate_limited"
+                out["token_error"] = "触发限流"
+            else:
+                out["token"] = f"http_{r.status_code}"
+                out["token_error"] = f"HTTP {r.status_code}"
+            return out
+        cs = d.get("checkout_session_id") or d.get("id") or ""
+        if not cs:
+            out["error"] = f"checkout 无 checkout_session_id: {str(d)[:200]}"
+            return out
+        out["cs"] = cs
+        out["entity"] = d.get("processor_entity") or ""
+        if cs.startswith("oaics_"):
+            out["session_type"] = "oaics"
+        elif cs.startswith("cs_live_") or cs.startswith("cs_"):
+            out["session_type"] = "cs_live"
+        else:
+            out["session_type"] = "unknown"
+
+        # 2) cs_live: init 记录金额与渠道 (oaics 对 Stripe init 404, 跳过)
+        pk = d.get("publishable_key") or ""
+        if out["session_type"] == "cs_live" and pk:
+            try:
+                initr = _init_once(proxy, pk, cs, timeout)
+                d0 = initr.get("init") or {}
+                if initr.get("ok") and isinstance(d0, dict):
+                    invoice = d0.get("invoice") if isinstance(d0.get("invoice"), dict) else {}
+                    if "amount_due" in invoice:
+                        out["amount"] = int(invoice.get("amount_due"))
+                    raw = d0.get("payment_method_types")
+                    methods = [str(m).lower() for m in raw] if isinstance(raw, list) else []
+                    out["paypal"] = "paypal" in methods
+            except Exception:
+                pass
+
+        # 3) update 注入 promo 探测优惠资格 (200=有, 403 promotion not available=无)
+        try:
+            upd = stage_update_live(proxy, access_token, session_token, cs, out["entity"] or "openai_llc",
+                                    cc, cur, "paypal")
+            body = str(upd.get("body") or "")
+            if upd.get("ok"):
+                out["promo"] = "yes"
+            else:
+                st2 = upd.get("status")
+                if st2 == 403 and ("promotion" in body.lower() or "not available" in body.lower()):
+                    out["promo"] = "no"
+                else:
+                    out["promo"] = f"err:{st2}"
+        except Exception as e:
+            out["promo"] = f"err:{type(e).__name__}:{str(e)[:40]}"
+        return out
+    finally:
+        s.close()
+
+
+def probe_session_type(access_token: str, session_token: str = "", proxy: str = "",
+                       country: str = "US", currency: str = "", timeout: int = 20) -> dict[str, Any]:
+    """兼容包装: 仅返回会话类型判别 (旧接口)。"""
+    r = probe_token(access_token, session_token, proxy, country, currency, timeout)
+    return {
+        "session_type": r.get("session_type") or "",
+        "cs": r.get("cs") or "",
+        "entity": r.get("entity") or "",
+        "status": r.get("status") or 0,
+        "detail": r.get("detail") or "",
+        "error": r.get("error") or (r.get("token_error") or ""),
+    }
 
 
 def detect_channel(

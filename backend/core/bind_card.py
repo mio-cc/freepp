@@ -418,16 +418,14 @@ def setup_confirm_inline(
         session,
         f"{STRIPE_BASE}/v1/setup_intents/{setup_id}/confirm",
         body,
-        key=pk,
+        pk=pk,
         referer=referer,
         timeout=timeout,
-        stripe_version=STRIPE_VERSION,
     )
 
 
 # =============================================================================
 # Step 3: 列卡验证 (ChatGPT API + Stripe API)
-# =============================================================================
 def list_payment_methods(
     proxy: str,
     access_token: str,
@@ -525,7 +523,7 @@ def create_confirmation_token(
         session,
         f"{STRIPE_BASE}/v1/confirmation_tokens",
         body,
-        key=pk,
+        pk=pk,
         referer=referer or APP_BASE,
         timeout=timeout,
         stripe_version=STRIPE_BETAS,
@@ -580,7 +578,7 @@ def final_setup_confirm(
         session,
         f"{STRIPE_BASE}/v1/setup_intents/{setup_id}/confirm",
         body,
-        key=pk,
+        pk=pk,
         referer=referer,
         timeout=timeout,
     )

@@ -29,7 +29,7 @@ async def batch_start(body: dict):
     from core.config import settings
     bcfg = settings.branch(branch)
     options = {
-        "max_concurrent": body.get("max_concurrent", settings.max_concurrent_chains),
+        "max_concurrent": body.get("max_concurrent"),
         "retry_per_stage": body.get("retry_per_stage", 3),
         "attempts": body.get("attempts", bcfg.attempts),
         "auto_billing": body.get("auto_billing", True),

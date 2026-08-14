@@ -1,5 +1,60 @@
 """GraphQL query and mutation definitions for PayPal checkout flow."""
 
+# Member buyer identity queries (ported from paypal-agreement-protocol:
+# identity-elevation / buyer-context sync).  These attach the signed-up member
+# identity to an EC checkout before the final billing.authorize mutation.
+BUYER_CONTEXT_QUERY = """
+query BuyerContextQuery($token: String!) {
+  checkoutSession(token: $token) {
+    buyer {
+      userId
+      auth {
+        accessToken
+        __typename
+      }
+      __typename
+    }
+    __typename
+  }
+}
+"""
+
+BUYER_FUNDING_CONTEXT_QUERY = """
+query BuyerFundingContextQuery($token: String!) {
+  checkoutSession(token: $token) {
+    buyer {
+      userId
+      auth {
+        accessToken
+        __typename
+      }
+      __typename
+    }
+    fundingOptions {
+      fundingInstrument {
+        id
+        lastDigits
+        type
+        __typename
+      }
+      allPlans {
+        fundingSources {
+          fundingInstrument {
+            id
+            type
+            __typename
+          }
+          __typename
+        }
+        __typename
+      }
+      __typename
+    }
+    __typename
+  }
+}
+"""
+
 # Current checkoutweb/weasley CheckoutSessionDataQuery.  The old
 # isChangePaymentMethodFlow flag no longer exists on CheckoutSessionFlags and
 # causes GRAPHQL_VALIDATION_FAILED.

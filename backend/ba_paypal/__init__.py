@@ -166,13 +166,49 @@ class BAAuthorizer:
 
         from .paypal.flow import PayPalFlow
         from .paypal.models import generate_user, generate_card, generate_address
+        from .paypal.country_profile import country_context as _build_country_context
 
-        phone_full = str(phone or "").strip() or "+5591980133818"
-        user = identity and _identity_to_user(identity) or generate_user(phone=phone_full)
-        card = generate_card()
-        address = generate_address()
+        buyer_mode = str(kwargs.get("buyer_mode") or "original").strip().lower()
+        flow_cls = PayPalFlow
+        if buyer_mode in {"elevation", "identity_elevation", "member"}:
+            from .paypal.elevation_flow import IdentityElevationPayPalFlow
+            flow_cls = IdentityElevationPayPalFlow
 
-        flow = PayPalFlow(
+        cc = str(kwargs.get("country") or "").strip().upper()
+        ctx = kwargs.get("country_context")
+        if ctx is None:
+            if cc:
+                try:
+                    ctx = _build_country_context(cc)
+                except Exception:
+                    ctx = None
+        if ctx is not None:
+            cc = str(getattr(ctx, "country", "") or cc or "BR").upper()
+        cc = cc or "BR"
+
+        phone_full = str(phone or "").strip()
+        if identity:
+            user = _identity_to_user(identity)
+            address = _identity_to_address(identity, cc)
+        elif ctx is not None:
+            user = generate_user(phone=phone_full, country=cc)
+            address = generate_address(country=cc)
+        else:
+            # 无上下文也无 identity: 空 phone 不允许静默兜底 BR 号码
+            if not phone_full:
+                raise ValueError(
+                    "phone is required when no country_context/identity is provided "
+                    "(removed legacy +5591980133818 fallback)"
+                )
+            user = generate_user(phone=phone_full)
+            address = generate_address()
+        card = generate_card(proxy_url=self.proxy or None, country=cc)
+
+        sms_provider = kwargs.get("sms_provider")
+        if sms_provider is None and sms_callback is not None:
+            sms_provider = _callback_sms_provider(sms_callback)
+
+        flow = flow_cls(
             ba_token=self._ba_token or "",
             user=user,
             card=card,
@@ -182,12 +218,21 @@ class BAAuthorizer:
             max_authorize_attempts=int(kwargs.get("max_authorize_attempts") or 3),
             proxy_enabled=bool(self.proxy),
             proxy_config=_proxy_config(self.proxy) if self.proxy else None,
-            sms_provider=_callback_sms_provider(sms_callback) if sms_callback else None,
+            sms_provider=sms_provider,
+            country_context=ctx,
         )
         self._flow = flow
         try:
             result = flow.run()
         except Exception as e:
+            import logging as _logging
+            import traceback as _tb
+
+            _logging.getLogger("ba_paypal").error(
+                "BA authorize flow crashed: %s\n%s",
+                e,
+                _tb.format_exc(),
+            )
             result = {"status": "error", "error": f"{type(e).__name__}: {e}", "reason": "FLOW_EXCEPTION"}
         result.setdefault("elapsed", round(time.monotonic() - t0, 2))
         if result.get("status") == "success":
@@ -230,14 +275,63 @@ def _classify_page(html: str, final_url: str = "") -> str:
 
 
 def _identity_to_user(identity: dict) -> Any:
-    from .paypal.models import UserInfo
+    from .paypal.models import UserInfo, _split_phone
+
+    i = identity or {}
+    phone_full = str(i.get("phone") or i.get("phone_number") or "")
+    phone_cc = str(i.get("phone_country_code") or i.get("phone_country") or "+1")
+    if phone_full and not phone_full.startswith("+"):
+        phone_full = f"{phone_cc}{phone_full}"
+    local, cc_out = _split_phone(phone_full, phone_cc)
     return UserInfo(
-        email=str(identity.get("email") or ""),
-        first_name=str(identity.get("first_name") or identity.get("firstName") or ""),
-        last_name=str(identity.get("last_name") or identity.get("lastName") or ""),
-        phone_country_code=str(identity.get("phone_country_code") or "+55"),
-        phone=str(identity.get("phone") or ""),
+        email=str(i.get("email") or ""),
+        first_name=str(i.get("first_name") or i.get("firstName") or ""),
+        last_name=str(i.get("last_name") or i.get("lastName") or ""),
+        phone=phone_full,
+        phone_local=local,
+        phone_country_code=cc_out,
+        password=str(i.get("password") or ""),
+        dob=str(i.get("dob") or ""),
+        cpf=str(i.get("identity_document_number") or i.get("cpf") or ""),
+        identity_document_type=str(i.get("identity_document_type") or ""),
+        identity_document_number=str(i.get("identity_document_number") or i.get("cpf") or ""),
+        nationality=str(i.get("nationality") or ""),
+        middle_name=str(i.get("middle_name") or i.get("middleName") or ""),
+        kana_first=str(i.get("kana_first") or ""),
+        kana_last=str(i.get("kana_last") or ""),
+        crs_data=i.get("crs_data") or i.get("crs_tax_details"),
+        occupation=str(i.get("occupation") or ""),
     )
+
+
+def _identity_to_address(identity: dict, country: str = "BR") -> Any:
+    from .paypal.models import BillingAddress
+
+    i = identity or {}
+    addr = i.get("address") or {}
+    if not isinstance(addr, dict):
+        addr = {}
+    street = str(i.get("street") or addr.get("line1") or "")
+    house_number = str(i.get("house_number") or "")
+    if house_number and street and house_number not in street:
+        street = f"{street}, {house_number}" if not street.endswith(house_number) else street
+    if not house_number:
+        parts = street.rsplit(" ", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            street, house_number = parts
+    return BillingAddress(
+        street=street,
+        house_number=house_number,
+        district=str(i.get("district") or addr.get("line2") or ""),
+        city=str(i.get("city") or addr.get("city") or ""),
+        state=str(i.get("state") or addr.get("state") or ""),
+        postal_code=str(i.get("postal_code") or addr.get("postal_code") or ""),
+        country=str(i.get("country") or addr.get("country") or country or "BR").upper(),
+    )
+
+
+def _digits_only(value: object) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
 
 
 def _proxy_config(proxy_url: str) -> Any:
@@ -253,6 +347,7 @@ class _callback_sms_provider:
 
     def __init__(self, callback: Callable[[], str]):
         self._callback = callback
+        self.max_attempts = 3
 
     def reserve_number(self):
         return _CallbackActivation(self._callback)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { StageName, StageCfg, BranchCfg } from "../types";
+import type { StageName, StageCfg, BranchCfg, OaicsStageName, OaicsBranchCfg } from "../types";
 import { StageSettingsPanel } from "../components/chain/StageSettings";
 
 /* ==========================================================================
@@ -83,13 +83,56 @@ export function PayPalExtractView() {
     }
   };
 
+  const handleSaveOaicsStage = async (stage: OaicsStageName, patch: Partial<StageCfg>) => {
+    setSavingStage(stage);
+    try {
+      await api("/api/config/branch", "POST", {
+        branch: "paypal",
+        oaics: {
+          billing_country: branch?.oaics?.billing_country,
+          attempts: branch?.oaics?.attempts,
+          stages: { [stage]: patch },
+        },
+      });
+      setBranch((prev) => {
+        if (!prev?.oaics) return prev;
+        return {
+          ...prev,
+          oaics: {
+            ...prev.oaics,
+            stages: { ...prev.oaics.stages, [stage]: { ...(prev.oaics.stages[stage] as StageCfg), ...patch } as StageCfg },
+          },
+        };
+      });
+    } catch {
+      // 静默
+    } finally {
+      setSavingStage("");
+    }
+  };
+
+  const handleSaveOaicsFlags = async (patch: Partial<OaicsBranchCfg>) => {
+    setSavingFlags(true);
+    try {
+      await api("/api/config/branch", "POST", {
+        branch: "paypal",
+        oaics: { ...(branch?.oaics || {}), ...patch } as any,
+      });
+      setBranch((prev) => (prev ? { ...prev, oaics: { ...(prev.oaics || ({} as OaicsBranchCfg)), ...patch } } : prev));
+    } catch {
+      // 静默
+    } finally {
+      setSavingFlags(false);
+    }
+  };
+
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h2 className="page-title">PayPal 提炼</h2>
           <p className="page-sub">
-            七段出口配置 · 双 Init · 渠道校验 · 分段跟随 · 账单国 — 启动在 Token 库
+            双链路配置 · 原七段 (cs_live / hosted) + OAICS 五段 (custom 纯 HTTP)
           </p>
         </div>
         <div className="page-actions">
@@ -106,6 +149,8 @@ export function PayPalExtractView() {
           countries={countryOptions}
           onSaveStage={handleSaveStage}
           onSaveFlags={handleSaveFlags}
+          onSaveOaicsStage={handleSaveOaicsStage}
+          onSaveOaicsFlags={handleSaveOaicsFlags}
           savingStage={savingStage}
           savingFlags={savingFlags}
         />
@@ -155,5 +200,17 @@ function makeMockBranch(): BranchCfg {
     billing_country: "auto",
     attempts: 8,
     stages: mkStages([]),
+    oaics: {
+      label: "OAICS 五段",
+      billing_country: "auto",
+      attempts: 5,
+      stages: {
+        checkout: { countries: ["US"], timeout: 15, retry: 3 },
+        taxes: { countries: ["US"], timeout: 15, retry: 3 },
+        provider: { countries: ["US"], timeout: 20, retry: 3 },
+        confirm: { countries: ["US"], timeout: 20, retry: 3 },
+        resolve: { countries: ["US"], timeout: 20, retry: 2 },
+      },
+    },
   };
 }
