@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useStore } from "../store/useStore";
 import { api } from "../api/client";
 import type { BAAuthRecord, BAAuthConfig, BAStep, SMAQuote, BAFeedItem, BABaSnap } from "../types";
@@ -19,6 +19,17 @@ const FEED_LABEL: Record<BAFeedItem["level"], string> = {
   warn: "警告",
   err: "失败",
 };
+
+const FEED_LEVEL_OPTIONS: { value: string; label: string }[] = [
+  { value: "all", label: "全部级别" },
+  { value: "ok", label: "成功" },
+  { value: "info", label: "信息" },
+  { value: "warn", label: "警告" },
+  { value: "err", label: "失败" },
+];
+
+/** 监控日志面板最多渲染条数 (避免并发多时整页渲染卡顿) */
+const FEED_MAX_DISPLAY = 200;
 
 const CAPTCHA_LABELS: Record<string, string> = {
   iq: "IQ (reCAPTCHA Enterprise)",
@@ -131,6 +142,34 @@ export function PayPalView() {
   const rehydrateBaFeed = useStore((s) => s.rehydrateBaFeed);
   const baFeedRef = useRef<ReturnType<typeof useStore.getState>["baFeed"]>(baFeed);
   baFeedRef.current = baFeed;
+
+  // 监控日志筛选 (模仿实时日志页: 级别 + 链路下拉)
+  const [feedLevel, setFeedLevel] = useState<string>("all");
+  const [feedToken, setFeedToken] = useState<string>("all");
+  const feedStreamRef = useRef<HTMLDivElement>(null);
+
+  const feedTokens = useMemo(() => {
+    const seen = new Set<string>();
+    baFeed.forEach((f) => seen.add(f.token));
+    return Array.from(seen);
+  }, [baFeed]);
+
+  const filteredFeed = useMemo(() => {
+    return baFeed.filter((f) => {
+      if (feedLevel !== "all" && f.level !== feedLevel) return false;
+      if (feedToken !== "all" && f.token !== feedToken) return false;
+      return true;
+    });
+  }, [baFeed, feedLevel, feedToken]);
+
+  const displayFeed = useMemo(() => filteredFeed.slice(-FEED_MAX_DISPLAY), [filteredFeed]);
+
+  // 自动滚底 (仅筛选视图变化时)
+  useEffect(() => {
+    if (feedStreamRef.current) {
+      feedStreamRef.current.scrollTop = feedStreamRef.current.scrollHeight;
+    }
+  }, [displayFeed]);
 
   const pendingFromChains = Object.values(chainStates).filter(
     (c) => c.status === "success" && c.url && c.url.includes("ba_token=BA-")
@@ -477,31 +516,38 @@ export function PayPalView() {
     }
   };
 
-  // 批量重试失败记录
+  // 重跑 (failed 重试 + success 重跑统一入口)
   const handleRetryTokens = async (tokens: string[]) => {
-    const targets = baRecords.filter((r) => tokens.includes(r.ba_token) && r.status === "failed");
+    const targets = baRecords.filter(
+      (r) => tokens.includes(r.ba_token) && (r.status === "failed" || r.status === "success")
+    );
     if (targets.length === 0) {
-      pushLog("所选记录中没有 failed 状态", "warn", "paypal");
+      pushLog("所选记录中没有可重跑的 (failed/success)", "warn", "paypal");
       return;
     }
+    const hasSuccess = targets.some((r) => r.status === "success");
     const groupText = [...new Set(targets.map((r) => (r.identity_country || r.country || "BR").toUpperCase()))].join(" / ");
-    if (!window.confirm(`重试 ${targets.length} 条失败 BA (${groupText}, 并发上限 ${config.max_concurrent ?? 3})?`)) return;
-    pushLog(`批量重试: ${targets.length} 条 BA`, "info", "paypal");
+    if (!window.confirm(
+      hasSuccess
+        ? `重跑 ${targets.length} 条 BA (含已授权记录, 将消耗新接码号/新卡)\n${groupText}\n并发上限 ${config.max_concurrent ?? 3}。确认?`
+        : `重试 ${targets.length} 条失败 BA (${groupText}, 并发上限 ${config.max_concurrent ?? 3})?`
+    )) return;
+    pushLog(`${hasSuccess ? "重跑" : "批量重试"}: ${targets.length} 条 BA (${groupText})`, "info", "paypal");
     try {
       const res = await api("/api/paypal/ba/retry", "POST", {
         ba_tokens: targets.map((r) => r.ba_token),
-        config,
+        config: { ...config, allow_success_retry: hasSuccess },
       });
       if (res && res.ok) {
-        pushLog(`重试已启动: ${res.started}/${res.total} 条`, "ok", "paypal");
+        pushLog(`已启动: ${res.started}/${res.total} 条`, "ok", "paypal");
         if (res.skipped && Object.keys(res.skipped).length > 0) {
-          pushLog(`重试跳过: ${JSON.stringify(res.skipped)}`, "warn", "paypal");
+          pushLog(`跳过: ${JSON.stringify(res.skipped)}`, "warn", "paypal");
         }
         fetchBaRecords();
         setSelected(new Set());
       }
     } catch {
-      pushLog("批量重试失败 (后端不可用)", "warn", "paypal");
+      pushLog("重跑失败 (后端不可用)", "warn", "paypal");
     }
   };
 
@@ -668,9 +714,34 @@ export function PayPalView() {
           <span className="card-title">BA 授权实时监控</span>
           <span className="card-hint">3s 轮询 · 实时步骤/取号/OTP/授权结果</span>
           <div style={{ flex: 1 }} />
+          <select
+            className="select"
+            style={{ width: 110 }}
+            value={feedLevel}
+            onChange={(e) => setFeedLevel(e.target.value)}
+            title="按日志级别筛选"
+          >
+            {FEED_LEVEL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <select
+            className="select"
+            style={{ width: 130 }}
+            value={feedToken}
+            onChange={(e) => setFeedToken(e.target.value)}
+            title="按 BA 链路筛选"
+          >
+            <option value="all">全部链路</option>
+            {feedTokens.map((tok) => (
+              <option key={tok} value={tok}>
+                {tok.slice(0, 12)}…
+              </option>
+            ))}
+          </select>
           <span className="tag">运行中 {stats.running}</span>
-          <span className="tag" style={{ color: "var(--ok)" }}>成功 {stats.success}</span>
-          <span className="tag" style={{ color: "var(--danger)" }}>失败 {stats.failed}</span>
           <button className="btn btn-sm btn-ghost" onClick={() => clearBaFeed()}>
             清空日志
           </button>
@@ -683,22 +754,35 @@ export function PayPalView() {
               ))}
             </div>
           )}
-          {baFeed.length === 0 ? (
+          {displayFeed.length === 0 ? (
             <div className="feed-empty">
-              暂无授权日志 — 队列有状态变化时 (导入/启动/步骤/取号/OTP/成功/失败/删除) 实时显示在此
+              {baFeed.length === 0
+                ? "暂无授权日志 — 队列有状态变化时 (导入/启动/步骤/取号/OTP/成功/失败/删除) 实时显示在此"
+                : "当前筛选条件下无日志"}
             </div>
           ) : (
-            <div className="monitor-feed">
-              {baFeed.map((f, i) => (
-                <div className="feed-row" key={`${f.ts}-${i}`}>
-                  <span className="feed-ts">
-                    {new Date(f.ts).toLocaleTimeString("zh-CN", { hour12: false })}
-                  </span>
-                  <span className={`badge ${FEED_BADGE[f.level]}`}>{FEED_LABEL[f.level]}</span>
-                  <code className="feed-token">{f.token.slice(0, 12)}…</code>
-                  <span className="feed-msg">{f.msg}</span>
-                </div>
-              ))}
+            <div className="log-panel" style={{ maxHeight: 340 }}>
+              <div className="log-body" ref={feedStreamRef}>
+                {displayFeed.map((f, i) => (
+                  <div className={`log-line ${f.level}`} key={`${f.ts}-${i}`}>
+                    <span className="log-ts">
+                      {new Date(f.ts).toLocaleTimeString("zh-CN", { hour12: false })}
+                    </span>
+                    <span
+                      className="log-chain"
+                      title={`点击筛选此链路: ${f.token}`}
+                      style={{ cursor: "pointer", textDecoration: "underline dotted" }}
+                      onClick={() => {
+                        setFeedToken(f.token);
+                        setFeedLevel("all");
+                      }}
+                    >
+                      {f.token.slice(0, 8)}
+                    </span>
+                    <span className="log-msg">{f.msg}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -847,9 +931,9 @@ export function PayPalView() {
               <button
                 className="btn btn-sm"
                 onClick={() => handleRetryTokens([...selected])}
-                disabled={selectedList.every((r) => r.status !== "failed")}
+                disabled={selectedList.every((r) => r.status !== "failed" && r.status !== "success")}
               >
-                重试所选
+                重跑所选
               </button>
               <button
                 className="btn btn-sm btn-danger"
@@ -962,44 +1046,23 @@ export function PayPalView() {
                             授权
                           </button>
                         )}
-                        {r.status === "failed" && (
+                        {(r.status === "failed" || r.status === "success") && (
                           <button
                             className="btn btn-sm"
+                            title={
+                              r.status === "success"
+                                ? "重跑将消耗新号/新卡, 用于订阅未生效等场景"
+                                : "重新走完整授权流程"
+                            }
                             onClick={(e) => {
                               e.stopPropagation();
                               handleRetryTokens([r.ba_token]);
                             }}
                           >
-                            重试
+                            重跑
                           </button>
                         )}
                         {r.status === "running" && <span className="spinner" />}
-                        {r.status === "success" && (
-                          <>
-                            <span style={{ color: "var(--ok)" }}>✓</span>
-                            <button
-                              className="btn btn-sm"
-                              title="重跑将消耗新号/新卡, 用于订阅未生效等场景"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!window.confirm(`重跑已授权 ${r.ba_token}?\n将重新走完整授权流程 (消耗新接码号/新卡)。确认?`)) return;
-                                api("/api/paypal/ba/retry", "POST", {
-                                  ba_tokens: [r.ba_token],
-                                  config: { ...buildRecordConfig(r), allow_success_retry: true },
-                                }).then((res) => {
-                                  if (res && res.ok) {
-                                    pushLog(`已授权重跑已启动: ${r.ba_token}`, "ok", "paypal");
-                                    fetchBaRecords();
-                                  } else {
-                                    pushLog(`重跑失败: ${res?.error || "未知"}`, "warn", "paypal");
-                                  }
-                                });
-                              }}
-                            >
-                              重跑
-                            </button>
-                          </>
-                        )}
                         <button
                           className="btn btn-sm btn-ghost"
                           onClick={(e) => {
@@ -1347,9 +1410,22 @@ export function PayPalView() {
             </div>
             <div className="sheet-body">
               <div className="detail-list">
-                <div className="detail-row">
+                <div
+                  className="detail-row"
+                  style={{ cursor: "pointer" }}
+                  title="点击跳转: 监控流筛选此链路 + 队列表格定位该记录"
+                  onClick={() => {
+                    setDetailRecord(null);
+                    setFeedToken(detailRecord.ba_token);
+                    setFeedLevel("all");
+                    setFilterStatus("all");
+                    setSearch(detailRecord.ba_token);
+                  }}
+                >
                   <span className="dr-label">BA Token</span>
-                  <span className="dr-value">{detailRecord.ba_token}</span>
+                  <span className="dr-value" style={{ color: "var(--accent-strong)" }}>
+                    {detailRecord.ba_token} <span style={{ fontSize: 11, opacity: 0.6 }}>→ 筛选定位</span>
+                  </span>
                 </div>
                 <div className="detail-row">
                   <span className="dr-label">邮箱</span>
