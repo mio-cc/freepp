@@ -5779,11 +5779,19 @@ class PayPalFlow:
                 logger.warning("SMS provider could not reserve a number (attempt {}): {}", attempt, exc)
                 break
             self._update_user_phone(activation.phone_number)
-            self._emit_progress(
-                "sms",
-                f"已取号 provider={activation.provider_id} price=${activation.price:.4f} phone={self._masked_phone()}",
-                level="info",
-            )
+            if getattr(activation, "reused", False):
+                # 复用已确认号 (同 flow 重跑 2FA): 不花钱, 不回写价格, 提示复用
+                self._emit_progress(
+                    "sms",
+                    f"复用已确认号 provider={activation.provider_id} phone={self._masked_phone()} (不新增扣费)",
+                    level="info",
+                )
+            else:
+                self._emit_progress(
+                    "sms",
+                    f"已取号 provider={activation.provider_id} price=${activation.price:.4f} phone={self._masked_phone()}",
+                    level="info",
+                )
             try:
                 auth_id, challenge_id = self._initiate_2fa_phone_confirmation(token, signup_url)
             except Exception as exc:

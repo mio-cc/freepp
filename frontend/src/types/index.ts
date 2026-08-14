@@ -203,6 +203,7 @@ export const BA_STEP_CN: Record<string, string> = {
   signup: "注册会员",
   consent_ba: "同意授权",
   done: "完成",
+  init_session: "初始化会话",
   authorize: "授权中",
   failed: "失败",
   FLOW_EXCEPTION: "流程异常",
@@ -255,6 +256,7 @@ export interface BAAuthConfig {
   captcha_strategy: string;
   buyer_mode?: string;
   max_retries: number;
+  max_flow_attempts?: number; // 最大流程尝试轮数 (授权整体重试)
   follow_chain_country?: boolean; // 默认 true: 授权国家跟随提链国家
   fail_fast_geo?: boolean; // 默认 true: 代理出口国家与表单国家不一致即失败
   max_concurrent?: number; // 授权段并发上限

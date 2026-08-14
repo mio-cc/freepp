@@ -71,9 +71,10 @@ export function PayPalView() {
     identity_country: "",
     sms_country: "",
     proxy_type: "711_sticky",
-    captcha_strategy: "dense_signal_reorder_v1",
+    captcha_strategy: "frontend_disable",
     buyer_mode: "elevation",
     max_retries: 3,
+    max_flow_attempts: 2,
     follow_chain_country: true,
     fail_fast_geo: true,
     max_concurrent: 3,
@@ -157,6 +158,37 @@ export function PayPalView() {
     // 仅挂载时拉取一次, 避免链路事件驱动下的重复请求循环
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 挂载时拉取后端持久化配置 (上次修改的设置), 覆盖本地初始默认值
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api("/api/paypal/ba/config", "GET");
+        if (res && res.config && typeof res.config === "object") {
+          setConfig((prev) => ({ ...prev, ...res.config }));
+        }
+      } catch {
+        /* 后端不可用时保持前端默认 */
+      }
+    })();
+  }, []);
+
+  // 配置变更自动保存到后端 (落盘, 下次会话自动恢复); 1s 防抖避免连续输入打爆接口
+  const saveConfigTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (saveConfigTimer.current) clearTimeout(saveConfigTimer.current);
+    saveConfigTimer.current = setTimeout(async () => {
+      try {
+        await api("/api/paypal/ba/config", "POST", config);
+      } catch {
+        /* 后端不可用时忽略 */
+      }
+    }, 1000);
+    return () => {
+      if (saveConfigTimer.current) clearTimeout(saveConfigTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config]);
 
   // 链路成功产出新 BA 时自动刷新授权队列
   const lastFetchedPending = useRef(0);
@@ -1006,9 +1038,9 @@ export function PayPalView() {
                     setConfig({ ...config, sms_provider: e.target.value })
                   }
                 >
-                  <option value="smsbower">SMSBower</option>
-                  <option value="sms_activate">SMS-Activate</option>
-                  <option value="5sim">5SIM</option>
+                  <option value="smsbower">SMSBower (已接入)</option>
+                  <option value="sms_activate" disabled>SMS-Activate (未接入)</option>
+                  <option value="5sim" disabled>5SIM (未接入)</option>
                 </select>
               </div>
             </div>
@@ -1204,11 +1236,9 @@ export function PayPalView() {
                     setConfig({ ...config, proxy_type: e.target.value })
                   }
                 >
-                  <option value="711_sticky">711 住宅代理 (Sticky)</option>
-                  <option value="711_rotate">711 住宅代理 (轮询)</option>
-                  <option value="singbox">sing-box 节点</option>
-                  <option value="qg_tunnel">QG 隧道</option>
-                  <option value="direct">直连</option>
+                  <option value="711_sticky">711 住宅代理 (Sticky) — 默认</option>
+                  <option value="singbox">sing-box 节点优先</option>
+                  <option value="qg">QG 隧道优先</option>
                 </select>
               </div>
             </div>
@@ -1225,15 +1255,13 @@ export function PayPalView() {
                     })
                   }
                 >
-                  <option value="dense_signal_reorder_v1">dense_signal_reorder_v1</option>
-                  <option value="fraudnet_first">fraudnet_first</option>
-                  <option value="tealeaf_reorder">tealeaf_reorder</option>
-                  <option value="skip_captcha">skip_captcha (仅 mint)</option>
+                  <option value="frontend_disable">frontend_disable (本地绕过, 8/11 成功路径)</option>
+                  <option value="manual_required">manual_required (人工验证)</option>
                 </select>
               </div>
             </div>
             <div className="setting-row">
-              <span className="setting-label">最大重试</span>
+              <span className="setting-label">最大重试 (卡/流程)</span>
               <div className="setting-control">
                 <input
                   className="input"
@@ -1243,6 +1271,23 @@ export function PayPalView() {
                     setConfig({
                       ...config,
                       max_retries: parseInt(e.target.value) || 3,
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <div className="setting-row">
+              <span className="setting-label">最大流程尝试</span>
+              <div className="setting-control">
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={config.max_flow_attempts ?? 2}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      max_flow_attempts: parseInt(e.target.value) || 2,
                     })
                   }
                 />

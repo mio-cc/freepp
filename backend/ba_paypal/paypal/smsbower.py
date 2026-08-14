@@ -529,10 +529,12 @@ class SMSBowerOtpProvider:
             ]
             if not candidates:
                 continue
-            # 价格升序, 前 min(5) 家软随机 (避免连续打同一低价 provider 造成段限流)
+            # 价格升序; 从最低价的前 5 家软随机 (避免连续打同一低价 provider 造成段限流)。
+            # 注意: 必须在前 5 家内抽, 不能对整个列表 sample (否则会随机抽到高价先试)。
             ordered = sorted(candidates, key=lambda item: (item.price, item.provider_id))
-            pool = ordered if len(ordered) <= 5 else random.sample(ordered, 5)
-            for pick in sorted(pool, key=lambda item: item.price):
+            cheapest = ordered[:5]
+            pool = cheapest if len(cheapest) <= 2 else random.sample(cheapest, len(cheapest))
+            for pick in sorted(pool, key=lambda item: (item.price, item.provider_id)):
                 try:
                     data = self._get_number_v2(pick)
                     activation = SMSBowerActivation(

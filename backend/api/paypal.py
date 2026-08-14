@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import os
 import re
 import threading
@@ -42,6 +43,10 @@ from core.token_store import token_store
 
 router = APIRouter(prefix="/api/paypal", tags=["paypal"])
 
+_BA_CONFIG_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ba_config.json"
+)
+
 _ba_config: dict[str, Any] = {
     "sms_provider": "smsbower",
     "sms_price": "0.05",
@@ -50,7 +55,7 @@ _ba_config: dict[str, Any] = {
     "identity_country": "",
     "sms_country": "",
     "proxy_type": "711_sticky",
-    "captcha_strategy": "dense_signal_reorder_v1",
+    "captcha_strategy": "frontend_disable",
     "buyer_mode": "elevation",
     "max_retries": 3,
     "max_flow_attempts": 2,
@@ -58,6 +63,34 @@ _ba_config: dict[str, Any] = {
     "fail_fast_geo": True,
     "max_concurrent": 3,
 }
+
+
+def _load_ba_config() -> None:
+    """启动/模块加载时从 ba_config.json 恢复上次配置 (不存在则用默认)。"""
+    global _ba_config
+    try:
+        if not os.path.exists(_BA_CONFIG_FILE):
+            return
+        with open(_BA_CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            _ba_config.update({k: v for k, v in data.items() if v is not None})
+    except Exception:
+        pass
+
+
+def _save_ba_config() -> None:
+    """配置变更立即落盘, 下次启动/刷新自动恢复。"""
+    try:
+        tmp = _BA_CONFIG_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_ba_config, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, _BA_CONFIG_FILE)
+    except OSError:
+        pass
+
+
+_load_ba_config()
 
 # ---- 授权段并发闸门 (独立于提链段 max_concurrent_chains) ----
 _ba_throttle_lock = threading.Lock()
@@ -118,6 +151,7 @@ class BABatchRequest(BaseModel):
 
 class BAConfigUpdate(BaseModel):
     sms_provider: str | None = None
+    sms_api_key: str | None = None
     sms_price: str | None = None
     sms_timeout: int | None = None
     exit_country: str | None = None
@@ -127,6 +161,7 @@ class BAConfigUpdate(BaseModel):
     captcha_strategy: str | None = None
     buyer_mode: str | None = None
     max_retries: int | None = None
+    max_flow_attempts: int | None = None
     follow_chain_country: bool | None = None
     fail_fast_geo: bool | None = None
     max_concurrent: int | None = None
@@ -195,13 +230,21 @@ def _resolve_auth_country(record: dict[str, Any], cfg: dict[str, Any]) -> str:
 
 
 def _pick_ba_proxy(country: str, cfg: dict[str, Any]) -> tuple[str, str]:
-    """代理选择: 显式 proxy > proxy_pool.pick_for_stage(country) > 空(直连, 会被 geo 校验拦)。"""
+    """代理选择: 显式 proxy > proxy_pool.pick_for_stage(country) > 空(直连, 会被 geo 校验拦)。
+
+    proxy_type 配置项映射到代理源偏好:
+      - "711" / "711_sticky" (默认): proxy_pool 内部 711 优先
+      - "qg": QG 隧道优先 (proxy_pool 无对应开关时回落默认)
+      - "singbox": sing-box 节点优先 (回落默认)
+    显式 proxy URL 时忽略 proxy_type。
+    """
     explicit = str(cfg.get("proxy") or os.environ.get("MIN_BA_PROXY", "") or "").strip()
     if explicit:
         return explicit, "explicit"
     try:
         from core.proxy_pool import proxy_pool
-        url = proxy_pool.pick_for_stage("resolve", country)
+        proxy_type = str(cfg.get("proxy_type") or "711_sticky").strip().lower()
+        url = proxy_pool.pick_for_stage("resolve", country, source=proxy_type)
         if url:
             return url, "auto"
     except Exception:
@@ -255,7 +298,13 @@ def _resolve_sms_country_code(raw: str, ctx) -> tuple[str, str]:
 
 
 def _build_sms_provider(country: str, cfg: dict[str, Any]):
-    """按国家上下文构造 SMSBower provider (接码国家 + 手机国码 + 价格上限)。"""
+    """按国家上下文构造 SMSBower provider (接码国家 + 手机国码 + 价格上限)。
+
+    目前仅实现 smsbower (sms_activate/5sim 等选项前端将置灰禁用)。
+    """
+    provider_name = str(cfg.get("sms_provider") or "smsbower").strip().lower()
+    if provider_name not in ("smsbower", "sms_bower", ""):
+        return None, f"unsupported_sms_provider:{provider_name} (仅支持 smsbower)"
     from ba_paypal.paypal.country_profile import country_context as _ctx
     ctx = _ctx(country)
     try:
@@ -277,6 +326,12 @@ def _build_sms_provider(country: str, cfg: dict[str, Any]):
             price_high = float(str(cfg.get("sms_price_high") or "0.3"))
             if price_high > 0:
                 provider.max_price_high = price_high
+        except Exception:
+            pass
+        try:
+            sms_timeout = float(str(cfg.get("sms_timeout") or "15"))
+            if sms_timeout >= 1:
+                provider.wait_seconds = sms_timeout
         except Exception:
             pass
         return provider, ""
@@ -710,9 +765,20 @@ async def get_ba_config() -> dict[str, Any]:
 
 @router.post("/ba/config")
 async def update_ba_config(req: BAConfigUpdate) -> dict[str, Any]:
-    """更新 BA 授权配置。"""
+    """更新 BA 授权配置 (立即落盘, 重启后自动恢复)。
+
+    captcha_strategy: frontend_disable / manual_required — 同时写入环境变量
+    供 flow 的 paypal_captcha_bypass_mode() 读取 (原配置项从不被 flow 消费)。
+    """
     updates = req.model_dump(exclude_none=True)
+    strategy = str(updates.get("captcha_strategy") or "").strip().lower()
+    if strategy:
+        if strategy in ("frontend_disable", "manual_required"):
+            os.environ["PAYPAL_CAPTCHA_BYPASS_MODE"] = strategy
+        else:
+            updates["captcha_strategy"] = ""
     _ba_config.update(updates)
+    _save_ba_config()
     return {"ok": True, "config": _ba_config}
 
 

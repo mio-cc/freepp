@@ -340,7 +340,7 @@ class AsyncProxyPool:
     # ------------------------------------------------------------------
     # 代理选择 (优先 711 → sing-box → QG → 直连)
     # ------------------------------------------------------------------
-    def pick_for_stage(self, stage: str, country: str | None = None) -> str:
+    def pick_for_stage(self, stage: str, country: str | None = None, source: str = "") -> str:
         """为某段链路选择代理 URL。
 
         优先级:
@@ -348,41 +348,82 @@ class AsyncProxyPool:
         2. sing-box 节点 (按国家轮询)
         3. QG 隧道
         4. 直连
+
+        source 偏好 (授权段 proxy_type 配置映射, 空=默认顺序):
+          - "711"/"711_sticky": 强制 711 (不可用时回落 sing-box/QG)
+          - "singbox": sing-box 优先 (不可用时回落 711/QG)
+          - "qg": QG 隧道优先 (不可用时回落 711/sing-box)
         """
         sc = settings.stage(stage)
         countries = [country] if country else sc.countries
         if not countries:
             countries = ["US"]
 
-        # 1) 优先 711 住宅代理
-        if self.proxy711.enabled and self.proxy711._healthy:
-            # 优先使用调用方传入国家(分支配置); 无指定时按段配置
-            region = country if country else self.proxy711.pick_country(stage)
-            proxy_url = self.proxy711.build_proxy(
-                region=region,
-                sess_time=settings.proxy_sess_time,
-                sticky=True,
-            )
-            return proxy_url
+        pref = str(source or "").strip().lower()
 
-        # 2) sing-box 节点
-        for ctry in countries:
-            avail = [n for n in self.nodes
-                     if n["country_hint"] == ctry and n["running"]
-                     and n["concurrent"] < n["max_concurrent"]
-                     and n["healthy"] is not False]
-            if avail:
-                idx = self._cursors.get(ctry, 0) % len(avail)
-                self._cursors[ctry] = idx + 1
-                node = avail[idx]
-                node["concurrent"] += 1
-                return f"http://{node.get('relay_base', '127.0.0.1')}:{node['port']}"
+        def _try_711() -> str:
+            if self.proxy711.enabled and self.proxy711._healthy:
+                region = country if country else self.proxy711.pick_country(stage)
+                return self.proxy711.build_proxy(
+                    region=region,
+                    sess_time=settings.proxy_sess_time,
+                    sticky=True,
+                )
+            return ""
 
-        # 3) QG 隧道
-        try:
-            return tunnel_proxy(countries[0])
-        except Exception:
-            return ""  # 4) 直连
+        def _try_singbox() -> str:
+            for ctry in countries:
+                avail = [n for n in self.nodes
+                         if n["country_hint"] == ctry and n["running"]
+                         and n["concurrent"] < n["max_concurrent"]
+                         and n["healthy"] is not False]
+                if avail:
+                    idx = self._cursors.get(ctry, 0) % len(avail)
+                    self._cursors[ctry] = idx + 1
+                    node = avail[idx]
+                    node["concurrent"] += 1
+                    return f"http://{node.get('relay_base', '127.0.0.1')}:{node['port']}"
+            return ""
+
+        def _try_qg() -> str:
+            try:
+                return tunnel_proxy(countries[0])
+            except Exception:
+                return ""
+
+        if pref in ("711", "711_sticky"):
+            url = _try_711()
+            if url:
+                return url
+            url = _try_singbox()
+            if url:
+                return url
+            return _try_qg()
+        if pref == "singbox":
+            url = _try_singbox()
+            if url:
+                return url
+            url = _try_711()
+            if url:
+                return url
+            return _try_qg()
+        if pref == "qg":
+            url = _try_qg()
+            if url:
+                return url
+            url = _try_711()
+            if url:
+                return url
+            return _try_singbox()
+
+        # 默认: 711 → sing-box → QG → 直连
+        url = _try_711()
+        if url:
+            return url
+        url = _try_singbox()
+        if url:
+            return url
+        return _try_qg()
 
     def release(self, proxy_url: str) -> None:
         """释放节点并发计数。"""
