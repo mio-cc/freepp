@@ -62,6 +62,7 @@ _ba_config: dict[str, Any] = {
     "follow_chain_country": True,
     "fail_fast_geo": True,
     "max_concurrent": 3,
+    "flow_timeout_s": 120,
 }
 
 
@@ -165,6 +166,7 @@ class BAConfigUpdate(BaseModel):
     follow_chain_country: bool | None = None
     fail_fast_geo: bool | None = None
     max_concurrent: int | None = None
+    flow_timeout_s: int | None = None
 
 
 class BAImportRequest(BaseModel):

@@ -2421,21 +2421,34 @@ table.table {
 /* ── BA 授权实时监控 ── */
 .running-strip {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 0 0 10px;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 0 8px;
   border-bottom: 1px solid var(--border-faint);
   margin-bottom: 10px;
+  scrollbar-width: thin;
+  max-width: 100%;
 }
 .running-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 4px 10px;
+  gap: 6px;
+  padding: 3px 9px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 11.5px;
+  border-radius: 7px;
+  font-size: 11px;
   background: var(--bg-raised);
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 260px;
+}
+.running-chip .feed-msg {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .monitor-feed {
   max-height: 340px;

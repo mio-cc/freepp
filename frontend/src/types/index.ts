@@ -260,6 +260,7 @@ export interface BAAuthConfig {
   follow_chain_country?: boolean; // 默认 true: 授权国家跟随提链国家
   fail_fast_geo?: boolean; // 默认 true: 代理出口国家与表单国家不一致即失败
   max_concurrent?: number; // 授权段并发上限
+  flow_timeout_s?: number; // 单条授权流程超时 (秒), 默认 120
 }
 
 /** BA 授权监控日志条目 (全局 store, 切换分栏/重挂载不丢失) */

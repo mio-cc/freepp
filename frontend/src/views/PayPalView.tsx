@@ -34,6 +34,30 @@ const STATUS_BADGE: Record<string, string> = {
   failed: "badge-danger",
 };
 
+/** 授权中 chip: 秒数自计时 (仅重渲染本 chip, 避免整页每秒重渲染) */
+function RunningChip({ r }: { r: BAAuthRecord }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div
+      className="running-chip"
+      title={`${r.ba_token}\n国家 ${r.identity_country || r.country || "?"}\n${r.last_msg || ""}`}
+    >
+      <span className="spinner" />
+      <code className="mono">{r.ba_token.slice(0, 14)}…</code>
+      <span>{BA_STEP_CN[r.step]}</span>
+      <span className="tag">{r.identity_country || r.country || "?"}</span>
+      {r.last_msg && <span className="feed-msg">{r.last_msg}</span>}
+      <span className="feed-ts">
+        {Math.max(0, Math.floor((now - (r.updated_at || now)) / 1000))}s
+      </span>
+    </div>
+  );
+}
+
 const STATUS_LABELS: Record<string, string> = {
   pending: "待授权",
   running: "授权中",
@@ -78,6 +102,7 @@ export function PayPalView() {
     follow_chain_country: true,
     fail_fast_geo: true,
     max_concurrent: 3,
+    flow_timeout_s: 120,
   });
   const [loading, setLoading] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -104,7 +129,6 @@ export function PayPalView() {
   const clearBaFeed = useStore((s) => s.clearBaFeed);
   const setBaSnap = useStore((s) => s.setBaSnap);
   const rehydrateBaFeed = useStore((s) => s.rehydrateBaFeed);
-  const [now, setNow] = useState(Date.now());
   const baFeedRef = useRef<ReturnType<typeof useStore.getState>["baFeed"]>(baFeed);
   baFeedRef.current = baFeed;
 
@@ -285,13 +309,6 @@ export function PayPalView() {
       clearInterval(timer);
     };
   }, [pushBaFeed, setBaSnap, rehydrateBaFeed]);
-
-  // running 记录已运行时长: 每秒刷新一次
-  useEffect(() => {
-    if (!baRecords.some((r) => r.status === "running")) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [baRecords]);
 
   const loadQuote = useCallback(
     async (cc: string) => {
@@ -662,20 +679,7 @@ export function PayPalView() {
           {runningList.length > 0 && (
             <div className="running-strip">
               {runningList.map((r) => (
-                <div className="running-chip" key={r.ba_token} title={`${r.ba_token} · ${r.identity_country || r.country || "?"}`}>
-                  <span className="spinner" />
-                  <code className="mono">{r.ba_token.slice(0, 14)}…</code>
-                  <span>{BA_STEP_CN[r.step]}</span>
-                  <span className="tag">{r.identity_country || r.country || "?"}</span>
-                  {r.last_msg && (
-                    <span className="feed-msg" style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {r.last_msg}
-                    </span>
-                  )}
-                  <span className="feed-ts">
-                    {Math.max(0, Math.floor((now - (r.updated_at || now)) / 1000))}s
-                  </span>
-                </div>
+                <RunningChip key={r.ba_token} r={r} />
               ))}
             </div>
           )}
@@ -1291,6 +1295,27 @@ export function PayPalView() {
                     })
                   }
                 />
+              </div>
+            </div>
+            <div className="setting-row">
+              <span className="setting-label">流程超时 (秒)</span>
+              <div className="setting-control">
+                <input
+                  className="input"
+                  type="number"
+                  min={30}
+                  step={10}
+                  value={config.flow_timeout_s ?? 120}
+                  title="单条授权流程最长耗时, 超时强制失败收尾 (默认 120s)"
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      flow_timeout_s: parseInt(e.target.value) || 120,
+                    })
+                  }
+                  style={{ width: 84 }}
+                />
+                <span className="setting-hint">超时强制收尾, 防授权卡死占用并发</span>
               </div>
             </div>
           </div>
