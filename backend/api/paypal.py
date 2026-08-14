@@ -718,6 +718,13 @@ async def retry_ba_batch(req: BARetryRequest) -> dict[str, Any]:
         if not ba_retry(ba_token, allow_success=allow_success):
             skipped[ba_token] = "not_retryable_or_not_found"
             continue
+        # retry 只把 failed->pending; 启动前必须 try_start 转 running,
+        # 否则任务在跑但队列 status 停留 pending: 前端不显示"授权启动"、
+        # 且 batch/authorize 会把它当 pending 重复启动
+        ok, lock_err = ba_try_start(ba_token)
+        if not ok:
+            skipped[ba_token] = lock_err
+            continue
         cfg = _merged_ba_config(req.config)
         if not _ba_acquire_slot(cap=_ba_concurrency_cap(cfg)):
             ba_update(ba_token, status="pending", error="")
