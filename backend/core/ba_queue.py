@@ -202,12 +202,20 @@ def try_start(ba_token: str) -> tuple[bool, str]:
         return True, ""
 
 
-def retry(ba_token: str) -> bool:
-    """failed -> pending (清空 error/step), 供批量重试。返回是否成功。"""
+def retry(ba_token: str, allow_success: bool = False) -> bool:
+    """failed/success -> pending (清空 error/step), 供批量重试。返回是否成功。
+
+    allow_success=True 时已授权记录也可重跑 (消耗新号新卡, 用于 EUAT 到手但
+    订阅未生效等场景); 默认仅 failed。
+    """
     with _lock:
         _load_locked()
         r = next((x for x in _records if x.get("ba_token") == ba_token), None)
-        if r is None or r.get("status") != "failed":
+        if r is None:
+            return False
+        if r.get("status") == "running":
+            return False
+        if r.get("status") not in ("failed",) and not (allow_success and r.get("status") == "success"):
             return False
         r["status"] = "pending"
         r["step"] = "submit_email"

@@ -44,12 +44,15 @@ def _build_cc_phone(country: str) -> str:
         return "+55"
 
 
-def _build_smsbower_provider(enabled: bool, api_key: str | None, country=None, phone_cc="+55"):
+def _build_smsbower_provider(enabled: bool, api_key: str | None, country=None, phone_cc="+55",
+                             max_price: float | None = None, max_price_high: float | None = None):
     return getattr(_smsbower_module(), "build_smsbower_provider")(
         enabled=enabled,
         api_key=api_key,
         country=country or "73",
         phone_cc=phone_cc,
+        max_price=max_price,
+        max_price_high=max_price_high,
     )
 
 
@@ -81,6 +84,18 @@ def main():
         "--smsbower-api-key",
         default=None,
         help="SMSBower API key. Defaults to SMSBOWER_API_KEY or PAYPAL_SMSBOWER_API_KEY from .env/environment",
+    )
+    parser.add_argument(
+        "--sms-price",
+        type=float,
+        default=None,
+        help="SMSBower 阶梯低档价格上限 (USD), 默认 0.05 (与 API 路径一致)",
+    )
+    parser.add_argument(
+        "--sms-price-high",
+        type=float,
+        default=None,
+        help="SMSBower 阶梯高档价格上限 (USD), 默认 0.3 (与 API 路径一致)",
     )
     parser.add_argument(
         "--debug", action="store_true",
@@ -183,8 +198,8 @@ def main():
     parser.add_argument(
         "--buyer-mode",
         choices=["original", "elevation", "identity_elevation"],
-        default=None,
-        help="Buyer mode: original (legacy flow) or identity_elevation (guest->member hydration, default for new runs)",
+        default="elevation",
+        help="Buyer mode: elevation (guest->member hydration, default; fixes BUYER_NOT_SET) or original (legacy flow)",
     )
 
     args = parser.parse_args()
@@ -223,6 +238,8 @@ def main():
             else None
         ),
         phone_cc=_build_cc_phone(identity_country),
+        max_price=args.sms_price if args.sms_price is not None else 0.05,
+        max_price_high=args.sms_price_high if args.sms_price_high is not None else 0.3,
     )
     if not args.phone and sms_provider is None and identity_country == "BR":
         parser.error("--phone is required unless --smsbower or SMSBOWER_ENABLED=1 is set")

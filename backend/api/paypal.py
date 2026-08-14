@@ -51,8 +51,9 @@ _ba_config: dict[str, Any] = {
     "sms_country": "",
     "proxy_type": "711_sticky",
     "captcha_strategy": "dense_signal_reorder_v1",
-    "buyer_mode": "original",
+    "buyer_mode": "elevation",
     "max_retries": 3,
+    "max_flow_attempts": 2,
     "follow_chain_country": True,
     "fail_fast_geo": True,
     "max_concurrent": 3,
@@ -61,6 +62,18 @@ _ba_config: dict[str, Any] = {
 # ---- 授权段并发闸门 (独立于提链段 max_concurrent_chains) ----
 _ba_throttle_lock = threading.Lock()
 _ba_running_count = 0
+
+
+def _merged_ba_config(raw: dict[str, Any] | None) -> dict[str, Any]:
+    """授权 config 合并: 显式字段覆盖, 缺省回落 _ba_config 默认值。
+
+    历史问题: `req.config or _ba_config` 在前端只传部分字段时不合并默认,
+    导致 buyer_mode 等回落硬编码旧值 (original / 0.02 等)。
+    """
+    merged = dict(_ba_config)
+    if isinstance(raw, dict):
+        merged.update(raw)
+    return merged
 
 
 def _ba_concurrency_cap(cfg: dict[str, Any] | None = None) -> int:
@@ -159,6 +172,10 @@ def _record_to_dict(r: dict[str, Any]) -> dict[str, Any]:
         "source": r.get("source", ""),
         "captcha_type": r.get("captcha_type", ""),
         "sms_phone": r.get("sms_phone", ""),
+        "sms_price": r.get("sms_price", 0),
+        "sms_provider_id": r.get("sms_provider_id", ""),
+        "last_msg": r.get("last_msg", ""),
+        "last_level": r.get("last_level", ""),
         "error": r.get("error", ""),
         "created_at": r.get("created_at", 0),
         "updated_at": r.get("updated_at", 0),
@@ -243,7 +260,8 @@ def _build_sms_provider(country: str, cfg: dict[str, Any]):
     ctx = _ctx(country)
     try:
         from ba_paypal.paypal.smsbower import build_smsbower_provider as _build
-        provider = _build(enabled=True)
+        api_key = str(cfg.get("sms_api_key") or "").strip() or None
+        provider = _build(enabled=True, api_key=api_key)
         if provider is None:
             return None, "smsbower_disabled"
         provider.country, provider.phone_cc = _resolve_sms_country_code(
@@ -307,22 +325,50 @@ async def _run_authorize_task(ba_token: str, cfg: dict[str, Any]) -> None:
         ba_update(ba_token, status="failed", error=sms_err)
         return
 
+    def _on_flow_progress(idx: int, name: str, status: str, kw: dict) -> None:
+        """flow progress_cb -> 队列实时写回 (3s 轮询前端可见)。
+
+        只写 step + 最近一条 msg; sms_price/sms_phone 由 SMS 段回调带出。
+        """
+        try:
+            detail = str(kw.get("detail") or "")
+            level = str(kw.get("level") or "info")
+            step = str(name or "")
+            if step == "sms" and detail:
+                # 从 detail 提取取号价格 (格式: 已取号 provider=xxx price=$0.1234 phone=+66...)
+                import re as _re
+                m_price = _re.search(r"price=\$([0-9.]+)", detail)
+                m_prov = _re.search(r"provider=([0-9]+)", detail)
+                m_phone = _re.search(r"phone=(\+\d[\d\s]*)", detail)
+                if m_price:
+                    ba_update(ba_token, sms_price=float(m_price.group(1)))
+                if m_prov:
+                    ba_update(ba_token, sms_provider_id=m_prov.group(1))
+                if m_phone:
+                    ba_update(ba_token, sms_phone=m_phone.group(1).strip())
+            ba_update(ba_token, step=step, last_msg=detail, last_level=level)
+        except Exception:
+            pass
+
     def _run() -> dict:
         auth = BAAuthorizer(proxy=proxy or None, fp_country=country)
         return auth.authorize(
             f"https://www.paypal.com/agreements/approve?ba_token={ba_token}",
             phone=str(cfg.get("phone") or "").strip() or None,
-            buyer_mode=str(cfg.get("buyer_mode") or "original").strip().lower(),
+            buyer_mode=str(cfg.get("buyer_mode") or "elevation").strip().lower(),
             country=country,
             identity=cfg.get("identity"),
             sms_provider=sms_provider,
             max_card_attempts=int(cfg.get("max_retries") or 3) + 2,
-            max_flow_attempts=1,
+            max_flow_attempts=int(cfg.get("max_flow_attempts") or 2),
             max_authorize_attempts=int(cfg.get("max_retries") or 3),
+            on_step=_on_flow_progress,
         )
 
     try:
-        result = await asyncio.to_thread(_run)
+        # 超时兜底: flow 卡死 (如 Playwright 清理挂起) 时强制收尾写队列, 不无限 running
+        timeout_s = float(cfg.get("flow_timeout_s") or 480)
+        result = await asyncio.wait_for(asyncio.to_thread(_run), timeout=timeout_s)
         ok = result.get("status") == "success"
         ba_update(
             ba_token,
@@ -334,6 +380,16 @@ async def _run_authorize_task(ba_token: str, cfg: dict[str, Any]) -> None:
                 if ok and isinstance(result.get("user"), dict)
                 else record.get("email", "")
             ),
+        )
+    except asyncio.TimeoutError:
+        ba_update(
+            ba_token,
+            status="failed",
+            step="failed",
+            error="flow_timeout (授权流程超过 {}s 未结束)",
+        )
+        _logging.getLogger("api.paypal").warning(
+            "BA authorize flow timed out after %ss: %s", timeout_s, ba_token,
         )
     except Exception as exc:
         import logging as _logging
@@ -436,7 +492,7 @@ async def authorize_ba(req: BAAuthorizeRequest) -> dict[str, Any]:
         }
         ba_add(**record)
 
-    cfg = copy.deepcopy(req.config or _ba_config)
+    cfg = _merged_ba_config(req.config)
 
     # pending -> running 原子转移 (重复启动拒绝)
     ok, lock_err = ba_try_start(ba_token)
@@ -485,7 +541,7 @@ async def batch_authorize(req: BABatchRequest) -> dict[str, Any]:
         if not ok:
             skipped[ba_token] = err
             continue
-        cfg = copy.deepcopy(req.config or _ba_config)
+        cfg = _merged_ba_config(req.config)
         if not _ba_acquire_slot(cap=_ba_concurrency_cap(cfg)):
             ba_update(ba_token, status="pending", error="")
             skipped[ba_token] = "concurrency_limit"
@@ -588,18 +644,19 @@ async def import_ba_from_chain(request: Request) -> dict[str, Any]:
 
 @router.post("/ba/retry")
 async def retry_ba_batch(req: BARetryRequest) -> dict[str, Any]:
-    """批量重试失败 BA: failed -> pending -> 启动 (复用并发闸门)。"""
+    """批量重试 BA: failed -> pending (allow_success=true 时已授权也可重跑) -> 启动。"""
     tokens = [t.strip() for t in (req.ba_tokens or []) if t and t.strip()]
     if not tokens:
         return {"ok": False, "error": "ba_tokens list is empty"}
 
     started: list[str] = []
     skipped: dict[str, str] = {}
+    allow_success = bool((req.config or {}).get("allow_success_retry", False))
     for ba_token in tokens:
-        if not ba_retry(ba_token):
-            skipped[ba_token] = "not_failed_or_not_found"
+        if not ba_retry(ba_token, allow_success=allow_success):
+            skipped[ba_token] = "not_retryable_or_not_found"
             continue
-        cfg = copy.deepcopy(req.config or _ba_config)
+        cfg = _merged_ba_config(req.config)
         if not _ba_acquire_slot(cap=_ba_concurrency_cap(cfg)):
             ba_update(ba_token, status="pending", error="")
             skipped[ba_token] = "concurrency_limit"

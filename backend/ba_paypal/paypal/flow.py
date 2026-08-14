@@ -159,6 +159,7 @@ class PayPalFlow:
         risk_signals_mode: str | None = None,
         sms_provider: SmsOtpProviderProtocol | None = None,
         country_context: Any | None = None,
+        progress_cb: Any | None = None,
     ):
         self.ba_token = ba_token
         self.user = user
@@ -167,6 +168,7 @@ class PayPalFlow:
         self.card = card
         self.address = address
         self.country_context = country_context
+        self.progress_cb = progress_cb
         self._used_card_bins: set[str] = set()
         if self.card.bin:
             self._used_card_bins.add(self.card.bin)
@@ -229,6 +231,19 @@ class PayPalFlow:
                 self._disable_roxy_runtime(
                     "Roxy fingerprint fell back to program random; Roxy Local API/runtime is unavailable."
                 )
+
+    def _emit_progress(self, step: str, detail: str = "", *, level: str = "info") -> None:
+        """向外部 (API 层) 推送流程进度: progress_cb(step, detail, level)。
+
+        回调异常绝不中断主流程; detail 过长截断。
+        """
+        cb = getattr(self, "progress_cb", None)
+        if cb is None:
+            return
+        try:
+            cb(str(step or ""), str(detail or "")[:400], str(level or "info"))
+        except Exception:
+            pass
 
     @staticmethod
     def _raw_mode_value(explicit: str | None, env_names: tuple[str, ...], default: object) -> str:
@@ -1447,10 +1462,22 @@ class PayPalFlow:
         session = getattr(self, "_headless_session", None) or getattr(self, "_headless_optimized_session", None)
         if session is None:
             return
+        # Playwright browser.close() 无超时, 在代理链路异常时可永久挂起 (8/14 BA-3YK 380s 卡死根因)。
+        # 放后台线程 + join 超时: 超时后放弃清理, 不阻塞主流程收尾 (授权结果已产出)。
+        import threading as _threading
+
+        def _close_worker() -> None:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+        worker = _threading.Thread(target=_close_worker, daemon=True)
+        worker.start()
         try:
-            session.close()
-        except Exception as exc:
-            logger.debug("Local headless session cleanup failed: {}", exc)
+            worker.join(timeout=15)
+            if worker.is_alive():
+                logger.warning("Local headless session close exceeded 15s; abandoning cleanup thread")
         finally:
             self._headless_session = None
             self._headless_optimized_session = None
@@ -2139,11 +2166,16 @@ class PayPalFlow:
                 self._log_flow_attempt_start(flow_attempt)
 
                 try:
+                    self._emit_progress("submit_email", "Phase 0: 初始化会话 / DataDome 过墙", level="info")
                     self._phase0_initial_load()
+                    self._emit_progress("captcha", "Phase 2: 建号 / EC checkout 校验", level="info")
                     self._phase2_create_account()
+                    self._emit_progress("sms", "Phase 3: 填表 + 2FA 短信验证", level="info")
                     self._phase3_signup_and_2fa()
+                    self._emit_progress("consent_ba", "Phase 4: 最终授权 (billing.authorize)", level="info")
                     result = self._with_risk_runtime_report(self._phase4_authorize())
                 except Exception as attempt_error:
+                    self._emit_progress("submit_email", f"流程异常: {self._safe_error_text(attempt_error)[:200]}", level="err")
                     if (
                         self._should_retry_full_flow_exception(attempt_error)
                         and flow_attempt < self.max_flow_attempts
@@ -2168,6 +2200,7 @@ class PayPalFlow:
 
                 if result.get("status") == "success":
                     logger.success(f"=== Flow completed successfully ===")
+                    self._emit_progress("done", "授权完成: EUAT 收口", level="ok")
                     return result
 
                 if self._should_retry_full_flow(result) and flow_attempt < self.max_flow_attempts:
@@ -3873,6 +3906,11 @@ class PayPalFlow:
             captcha_type,
             ",".join(states),
             force_synthetic,
+        )
+        self._emit_progress(
+            "captcha",
+            f"authchallenge {captcha_type} 已用 frontend_disable 关闭 (synthetic close)",
+            level="ok",
         )
         if csrf and session_id:
             for state in states:
@@ -5741,6 +5779,11 @@ class PayPalFlow:
                 logger.warning("SMS provider could not reserve a number (attempt {}): {}", attempt, exc)
                 break
             self._update_user_phone(activation.phone_number)
+            self._emit_progress(
+                "sms",
+                f"已取号 provider={activation.provider_id} price=${activation.price:.4f} phone={self._masked_phone()}",
+                level="info",
+            )
             try:
                 auth_id, challenge_id = self._initiate_2fa_phone_confirmation(token, signup_url)
             except Exception as exc:
@@ -5762,6 +5805,7 @@ class PayPalFlow:
                 continue
             if self._confirm_2fa_phone_confirmation(token, signup_url, auth_id, challenge_id, code):
                 self.sms_provider.register_confirmation_result(activation, True)
+                self._emit_progress("sms", "OTP 确认成功 (CONFIRMED)", level="ok")
                 return
             self.sms_provider.register_confirmation_result(activation, False)
             logger.warning("SMSBower OTP was rejected by PayPal; trying another number.")
@@ -7758,6 +7802,11 @@ class PayPalFlow:
                         self.max_authorize_attempts,
                         self._used_partial_signup_token,
                     )
+                    self._emit_progress(
+                        "consent_ba",
+                        f"authorize 返回 BUYER_NOT_SET (会员身份未绑定 checkout), 外层将重启",
+                        level="err",
+                    )
                 else:
                     logger.error(
                         "Authorization failed: authorize is empty. Errors: {}",
@@ -7786,6 +7835,11 @@ class PayPalFlow:
             logger.success(
                 "Billing Agreement Token: {}",
                 sanitize_for_log({"billingAgreementToken": ba_token_resp})["billingAgreementToken"],
+            )
+            self._emit_progress(
+                "consent_ba",
+                f"authorize 成功: paymentAction={auth_data.get('paymentAction')} buyerUserId={self.state.user_id}",
+                level="ok",
             )
             logger.success(f"Payment Action: {auth_data['paymentAction']}")
             logger.success(f"Buyer User ID: {self.state.user_id}")

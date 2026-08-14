@@ -168,7 +168,7 @@ class BAAuthorizer:
         from .paypal.models import generate_user, generate_card, generate_address
         from .paypal.country_profile import country_context as _build_country_context
 
-        buyer_mode = str(kwargs.get("buyer_mode") or "original").strip().lower()
+        buyer_mode = str(kwargs.get("buyer_mode") or "elevation").strip().lower()
         flow_cls = PayPalFlow
         if buyer_mode in {"elevation", "identity_elevation", "member"}:
             from .paypal.elevation_flow import IdentityElevationPayPalFlow
@@ -220,6 +220,7 @@ class BAAuthorizer:
             proxy_config=_proxy_config(self.proxy) if self.proxy else None,
             sms_provider=sms_provider,
             country_context=ctx,
+            progress_cb=_make_flow_progress_cb(on_step),
         )
         self._flow = flow
         try:
@@ -340,6 +341,33 @@ def _proxy_config(proxy_url: str) -> Any:
         return build_proxy_config(proxy_url=proxy_url)
     except Exception:
         return None
+
+
+def _make_flow_progress_cb(on_step: Any | None):
+    """把 flow 的 progress_cb(step, detail, level) 桥接为 BAAuthorizer 的 on_step 回调。
+
+    on_step 签名: on_step(idx, name, status, kw)。idx 为步骤序号 (供前端进度条),
+    这里统一用 9x 段编号避免与 authorize() 内 0-4 的粗步骤冲突。
+    """
+    _PROGRESS_IDX = {
+        "submit_email": 90, "captcha": 91, "sms": 92,
+        "signup": 93, "consent_ba": 94, "done": 95,
+    }
+
+    def _cb(step: str, detail: str = "", level: str = "info") -> None:
+        if on_step is None:
+            return
+        try:
+            on_step(
+                _PROGRESS_IDX.get(str(step), 99),
+                str(step or "progress"),
+                "run" if level != "err" else "fail",
+                {"detail": str(detail or ""), "level": level},
+            )
+        except Exception:
+            pass
+
+    return _cb
 
 
 class _callback_sms_provider:

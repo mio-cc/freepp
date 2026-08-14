@@ -204,8 +204,6 @@ export const BA_STEP_CN: Record<BAStep, string> = {
   consent_ba: "同意授权",
   done: "完成",
 };
-
-/** BA 授权记录 */
 export interface BAAuthRecord {
   ba_token: string;
   email: string;
@@ -221,6 +219,10 @@ export interface BAAuthRecord {
   source?: string;
   captcha_type: "iq" | "pi" | "none" | "";
   sms_phone: string;
+  sms_price?: number;
+  sms_provider_id?: string;
+  last_msg?: string;
+  last_level?: string;
   error: string;
   created_at: number;
   updated_at: number;
@@ -238,6 +240,7 @@ export interface SMAQuote {
 /** BA 授权配置 */
 export interface BAAuthConfig {
   sms_provider: string;
+  sms_api_key?: string; // 接码平台 API key (留空回落 .env)
   sms_price: string; // 语义: 单号最高预算 (USD), 授权时自动选最低价供应商
   sms_timeout: number;
   exit_country: string; // 兼容保留 (跟随出口国)

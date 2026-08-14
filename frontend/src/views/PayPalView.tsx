@@ -70,6 +70,7 @@ export function PayPalView() {
   const [baRecords, setBaRecords] = useState<BAAuthRecord[]>([]);
   const [config, setConfig] = useState<BAAuthConfig>({
     sms_provider: "smsbower",
+    sms_api_key: "",
     sms_price: "0.05",
     sms_timeout: 15,
     exit_country: "BR",
@@ -77,7 +78,7 @@ export function PayPalView() {
     sms_country: "",
     proxy_type: "711_sticky",
     captcha_strategy: "dense_signal_reorder_v1",
-    buyer_mode: "original",
+    buyer_mode: "elevation",
     max_retries: 3,
     follow_chain_country: true,
     fail_fast_geo: true,
@@ -104,7 +105,7 @@ export function PayPalView() {
   // 实时监控日志
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [now, setNow] = useState(Date.now());
-  const prevRecRef = useRef<Map<string, { status: string; step: string; error: string; source: string }> | null>(null);
+  const prevRecRef = useRef<Map<string, { status: string; step: string; error: string; source: string; last_msg: string }> | null>(null);
 
   const pendingFromChains = Object.values(chainStates).filter(
     (c) => c.status === "success" && c.url && c.url.includes("ba_token=BA-")
@@ -197,9 +198,9 @@ export function PayPalView() {
         setBaRecords(records);
         const items: FeedItem[] = [];
         const prev = prevRecRef.current;
-        const next = new Map<string, { status: string; step: string; error: string; source: string }>();
+        const next = new Map<string, { status: string; step: string; error: string; source: string; last_msg: string }>();
         for (const r of records) {
-          const snap = { status: r.status, step: r.step, error: r.error, source: r.source || "" };
+          const snap = { status: r.status, step: r.step, error: r.error, source: r.source || "", last_msg: r.last_msg || "" };
           next.set(r.ba_token, snap);
           const p = prev?.get(r.ba_token);
           if (!p) {
@@ -223,7 +224,9 @@ export function PayPalView() {
               items.push({ ts: Date.now(), token: r.ba_token, level: "warn", msg: "重新入队 (重试)" });
             }
           } else if (r.status === "running" && p.step !== r.step) {
-            items.push({ ts: Date.now(), token: r.ba_token, level: "info", msg: `步骤 → ${BA_STEP_CN[r.step]}` });
+            items.push({ ts: Date.now(), token: r.ba_token, level: "info", msg: `步骤 → ${BA_STEP_CN[r.step]}${r.last_msg ? ` · ${r.last_msg}` : ""}` });
+          } else if (r.status === "running" && r.last_msg && p.last_msg !== r.last_msg) {
+            items.push({ ts: Date.now(), token: r.ba_token, level: "info", msg: r.last_msg });
           } else if (r.status === "failed" && p.error !== r.error) {
             items.push({ ts: Date.now(), token: r.ba_token, level: "err", msg: `失败更新: ${r.error || ""}` });
           }
@@ -595,38 +598,26 @@ export function PayPalView() {
         </div>
       </div>
 
-      <div className="grid grid-3" style={{ marginBottom: 16 }}>
-        <div className="stat-card">
-          <span className="stat-label">BA 总数</span>
-          <div className="stat-value">{stats.total}</div>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">待授权</span>
-          <div className="stat-value" style={{ color: "var(--warn)" }}>{stats.pending}</div>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">授权中</span>
-          <div className="stat-value" style={{ color: "var(--info)" }}>{stats.running}</div>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">已授权</span>
-          <div className="stat-value" style={{ color: "var(--ok)" }}>{stats.success}</div>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">失败</span>
-          <div className="stat-value" style={{ color: "var(--danger)" }}>{stats.failed}</div>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">成功率</span>
-          <div className="stat-value">{successRate}%</div>
-        </div>
+      {/* 紧凑统计条: 单行, 不占大块空间 */}
+      <div
+        className="card"
+        style={{ marginBottom: 14, padding: "8px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}
+      >
+        <span className="tag">BA 总数 <b style={{ marginLeft: 4 }}>{stats.total}</b></span>
+        <span className="tag" style={{ color: "var(--warn)" }}>待授权 {stats.pending}</span>
+        <span className="tag" style={{ color: "var(--info)" }}>授权中 {stats.running}</span>
+        <span className="tag" style={{ color: "var(--ok)" }}>已授权 {stats.success}</span>
+        <span className="tag" style={{ color: "var(--danger)" }}>失败 {stats.failed}</span>
+        <span className="tag">成功率 {successRate}%</span>
+        <div style={{ flex: 1 }} />
+        <span className="card-hint">3s 自动刷新 · 实时步骤见下方监控流</span>
       </div>
 
       {/* BA 授权实时监控 */}
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-head">
           <span className="card-title">BA 授权实时监控</span>
-          <span className="card-hint">3s 轮询 · 队列状态变化实时记录</span>
+          <span className="card-hint">3s 轮询 · 实时步骤/取号/OTP/授权结果</span>
           <div style={{ flex: 1 }} />
           <span className="tag">运行中 {stats.running}</span>
           <span className="tag" style={{ color: "var(--ok)" }}>成功 {stats.success}</span>
@@ -644,6 +635,11 @@ export function PayPalView() {
                   <code className="mono">{r.ba_token.slice(0, 14)}…</code>
                   <span>{BA_STEP_CN[r.step]}</span>
                   <span className="tag">{r.identity_country || r.country || "?"}</span>
+                  {r.last_msg && (
+                    <span className="feed-msg" style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {r.last_msg}
+                    </span>
+                  )}
                   <span className="feed-ts">
                     {Math.max(0, Math.floor((now - (r.updated_at || now)) / 1000))}s
                   </span>
@@ -653,7 +649,7 @@ export function PayPalView() {
           )}
           {feed.length === 0 ? (
             <div className="feed-empty">
-              暂无授权日志 — 队列有状态变化时 (导入/启动/步骤/成功/失败/删除) 实时显示在此
+              暂无授权日志 — 队列有状态变化时 (导入/启动/步骤/取号/OTP/成功/失败/删除) 实时显示在此
             </div>
           ) : (
             <div className="monitor-feed">
@@ -861,6 +857,7 @@ export function PayPalView() {
                     <th>Captcha</th>
                     <th>国家</th>
                     <th>表单国家</th>
+                    <th>接码价/号</th>
                     <th>来源</th>
                     <th style={{ textAlign: "right" }}>操作</th>
                   </tr>
@@ -906,6 +903,15 @@ export function PayPalView() {
                         <span className="tag">{r.identity_country || r.country || "—"}</span>
                       </td>
                       <td>
+                        {r.sms_price ? (
+                          <span className="tag" title={`provider ${r.sms_provider_id || "?"} · ${r.sms_phone || "无号"}`}>
+                            ${Number(r.sms_price).toFixed(4)}
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--text-faint)" }}>—</span>
+                        )}
+                      </td>
+                      <td>
                         <span className="tag">{SOURCE_LABELS[r.source || "chain"] || r.source || "—"}</span>
                       </td>
                       <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
@@ -932,7 +938,32 @@ export function PayPalView() {
                           </button>
                         )}
                         {r.status === "running" && <span className="spinner" />}
-                        {r.status === "success" && <span style={{ color: "var(--ok)" }}>✓</span>}
+                        {r.status === "success" && (
+                          <>
+                            <span style={{ color: "var(--ok)" }}>✓</span>
+                            <button
+                              className="btn btn-sm"
+                              title="重跑将消耗新号/新卡, 用于订阅未生效等场景"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!window.confirm(`重跑已授权 ${r.ba_token}?\n将重新走完整授权流程 (消耗新接码号/新卡)。确认?`)) return;
+                                api("/api/paypal/ba/retry", "POST", {
+                                  ba_tokens: [r.ba_token],
+                                  config: { ...buildRecordConfig(r), allow_success_retry: true },
+                                }).then((res) => {
+                                  if (res && res.ok) {
+                                    pushLog(`已授权重跑已启动: ${r.ba_token}`, "ok", "paypal");
+                                    fetchBaRecords();
+                                  } else {
+                                    pushLog(`重跑失败: ${res?.error || "未知"}`, "warn", "paypal");
+                                  }
+                                });
+                              }}
+                            >
+                              重跑
+                            </button>
+                          </>
+                        )}
                         <button
                           className="btn btn-sm btn-ghost"
                           onClick={(e) => {
@@ -979,6 +1010,22 @@ export function PayPalView() {
                   <option value="sms_activate">SMS-Activate</option>
                   <option value="5sim">5SIM</option>
                 </select>
+              </div>
+            </div>
+            <div className="setting-row">
+              <span className="setting-label">接码平台 API Key</span>
+              <div className="setting-control">
+                <input
+                  className="input"
+                  type="password"
+                  value={config.sms_api_key || ""}
+                  placeholder="留空使用 backend/ba_paypal/.env 中的 key"
+                  onChange={(e) =>
+                    setConfig({ ...config, sms_api_key: e.target.value })
+                  }
+                  style={{ width: 260 }}
+                />
+                <span className="setting-hint">保存在前端 config, 授权时覆盖 .env (仅本次会话)</span>
               </div>
             </div>
             <div className="setting-row">
@@ -1291,6 +1338,23 @@ export function PayPalView() {
                   <span className="dr-label">SMS 号码</span>
                   <span className="dr-value">{detailRecord.sms_phone || "—"}</span>
                 </div>
+                {detailRecord.sms_price ? (
+                  <div className="detail-row">
+                    <span className="dr-label">接码价 (USD)</span>
+                    <span className="dr-value">
+                      ${Number(detailRecord.sms_price).toFixed(4)}
+                      {detailRecord.sms_provider_id ? ` · provider ${detailRecord.sms_provider_id}` : ""}
+                    </span>
+                  </div>
+                ) : null}
+                {detailRecord.last_msg && (
+                  <div className="detail-row">
+                    <span className="dr-label">最近进度</span>
+                    <span className="dr-value" style={{ color: detailRecord.last_level === "err" ? "var(--danger)" : undefined }}>
+                      {detailRecord.last_msg}
+                    </span>
+                  </div>
+                )}
                 {detailRecord.error && (
                   <div className="detail-row">
                     <span className="dr-label">错误信息</span>
