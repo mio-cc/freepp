@@ -129,32 +129,6 @@ function ChainTableInner({ chainList, onClick }: Props) {
                       attempt {cs.attempt || 1}
                     </div>
                   </td>
-                  <td style={{ textAlign: "center" }}>{(() => {
-                      const sd = cs.stages["probe"];
-                      const det = cs.detected
-                        ? cs.detected === "oaics" ? "OAICS" : cs.detected === "cs_live" ? "cs_live" : cs.detected
-                        : "";
-                      let pcls = "stage-cell chain-cell";
-                      let plabel = "·";
-                      if (sd?.state === "ok") {
-                        pcls += " ok";
-                        // 探测出 oaics 会话: 与 oaics 分段一致用淡粉区分
-                        if (cs.detected === "oaics") pcls += " oaics";
-                        plabel = det || sd.country || "✓";
-                      } else if (sd?.state === "fail") {
-                        pcls += " fail";
-                        plabel = "✗";
-                      } else if (sd?.state === "run") {
-                        pcls += " run";
-                        plabel = "探测中";
-                      }
-                      return (
-                        <span className={pcls} title={`会话类型探测 (checkout 段 IP)${sd?.country ? " · " + sd.country : ""}${det ? " · " + det : ""}`}>
-                          <span className="stage-dot" />
-                          <span className="stage-try">{plabel}</span>
-                        </span>
-                      );
-                    })()}</td>
                   {STAGE_ORDER.map((s) => {
                     const isOaics = cs.linkMode === "oaics";
                     let oaicsSrc: OaicsStageName | undefined;
