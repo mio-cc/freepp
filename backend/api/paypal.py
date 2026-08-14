@@ -325,11 +325,17 @@ async def _run_authorize_task(ba_token: str, cfg: dict[str, Any]) -> None:
         ba_update(ba_token, status="failed", error=sms_err)
         return
 
+    # 超时后后台线程可能仍在跑 (to_thread 不会真正取消), 需屏蔽其后续写回
+    timed_out = threading.Event()
+
     def _on_flow_progress(idx: int, name: str, status: str, kw: dict) -> None:
         """flow progress_cb -> 队列实时写回 (3s 轮询前端可见)。
 
         只写 step + 最近一条 msg; sms_price/sms_phone 由 SMS 段回调带出。
+        超时后返回, 不再覆盖超时分支写入的 status/step/error。
         """
+        if timed_out.is_set():
+            return
         try:
             detail = str(kw.get("detail") or "")
             level = str(kw.get("level") or "info")
@@ -382,11 +388,12 @@ async def _run_authorize_task(ba_token: str, cfg: dict[str, Any]) -> None:
             ),
         )
     except asyncio.TimeoutError:
+        timed_out.set()
         ba_update(
             ba_token,
             status="failed",
             step="failed",
-            error="flow_timeout (授权流程超过 {}s 未结束)",
+            error=f"flow_timeout (授权流程超过 {timeout_s:.0f}s 未结束)",
         )
         _logging.getLogger("api.paypal").warning(
             "BA authorize flow timed out after %ss: %s", timeout_s, ba_token,

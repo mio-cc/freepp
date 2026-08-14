@@ -2,10 +2,12 @@ import { create } from "zustand";
 import type {
   Token, ProxyNode, ChainState, Stats, Sample,
   InventoryRecord, LogEntry, ViewName, WSEvent, StageName, StageData, BranchName,
+  BAFeedItem, BABaSnap, BAAuthRecord,
 } from "../types";
 import { STAGE_ORDER } from "../types";
 
 const LOG_MAX = 1000;
+const BA_FEED_MAX = 300;
 
 interface StoreState {
   /* ── 导航 ── */
@@ -49,6 +51,14 @@ interface StoreState {
   /* ── 日志 ── */
   pushLog: (msg: string, level?: LogEntry["level"], chainId?: string) => void;
   clearLog: () => void;
+
+  /* ── BA 授权监控 feed (全局, 切分栏/刷新不丢) ── */
+  baFeed: BAFeedItem[];
+  baSnap: Map<string, BABaSnap> | null;
+  pushBaFeed: (item: BAFeedItem) => void;
+  clearBaFeed: () => void;
+  setBaSnap: (snap: Map<string, BABaSnap> | null) => void;
+  rehydrateBaFeed: (records: BAAuthRecord[]) => void;
 
   /* ── WebSocket 事件处理 ── */
   handleEvent: (evt: WSEvent) => void;
@@ -103,6 +113,45 @@ export const useStore = create<StoreState>((set, get) => ({
     }),
 
   clearLog: () => set({ logLines: [] }),
+
+  baFeed: [],
+  baSnap: null,
+  pushBaFeed: (item) =>
+    set((s) => {
+      const feed = [...s.baFeed, item];
+      if (feed.length > BA_FEED_MAX) feed.shift();
+      return { baFeed: feed };
+    }),
+  clearBaFeed: () => set({ baFeed: [], baSnap: null }),
+  setBaSnap: (snap) => set({ baSnap: snap }),
+  rehydrateBaFeed: (records) => {
+    // 挂载/刷新后: 用当前记录重建基线 (running 显示"恢复监控", 终态显示结果),
+    // 并建立 baSnap 基线, 后续轮询增量对比
+    const now = Date.now();
+    const snap = new Map<string, BABaSnap>();
+    const items: BAFeedItem[] = [];
+    for (const r of records || []) {
+      const key = r.ba_token;
+      snap.set(key, {
+        status: r.status,
+        step: r.step,
+        error: r.error,
+        source: r.source || "",
+        last_msg: r.last_msg || "",
+      });
+      if (r.status === "running") {
+        items.push({
+          ts: now, token: key, level: "info",
+          msg: `监控恢复 · 授权中 · ${r.step === "submit_email" ? "提交邮箱" : r.step}`,
+        });
+      } else if (r.status === "success") {
+        items.push({ ts: now, token: key, level: "ok", msg: "授权成功 ✓" });
+      } else if (r.status === "failed") {
+        items.push({ ts: now, token: key, level: "err", msg: `授权失败: ${r.error || "未知原因"}` });
+      }
+    }
+    set((s) => ({ baSnap: snap, baFeed: [...items.reverse(), ...s.baFeed].slice(0, BA_FEED_MAX) }));
+  },
 
   handleEvent: (evt) => {
     const s = get();

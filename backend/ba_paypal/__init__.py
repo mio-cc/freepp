@@ -241,6 +241,11 @@ class BAAuthorizer:
             result["euat"] = self._euat
             result["ec_token"] = getattr(flow.state, "ec_token", "") or ""
             result["user_id"] = getattr(flow.state, "user_id", "") or ""
+            result["user"] = {
+                "email": getattr(flow.user, "email", "") or "",
+                "first_name": getattr(flow.user, "first_name", "") or "",
+                "last_name": getattr(flow.user, "last_name", "") or "",
+            }
             _step(4, "authorize", "ok")
         else:
             _step(4, "authorize", "fail", error=result.get("error") or result.get("reason") or "unknown")

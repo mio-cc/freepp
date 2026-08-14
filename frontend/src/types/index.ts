@@ -196,13 +196,18 @@ export const BA_STEPS = [
 ] as const;
 export type BAStep = typeof BA_STEPS[number];
 
-export const BA_STEP_CN: Record<BAStep, string> = {
+export const BA_STEP_CN: Record<string, string> = {
   submit_email: "提交邮箱",
   captcha: "验证码",
   sms: "短信验证",
   signup: "注册会员",
   consent_ba: "同意授权",
   done: "完成",
+  authorize: "授权中",
+  failed: "失败",
+  FLOW_EXCEPTION: "流程异常",
+  AUTHORIZE_EMPTY: "授权空结果",
+  BUYER_NOT_SET: "未设买家",
 };
 export interface BAAuthRecord {
   ba_token: string;
@@ -253,6 +258,23 @@ export interface BAAuthConfig {
   follow_chain_country?: boolean; // 默认 true: 授权国家跟随提链国家
   fail_fast_geo?: boolean; // 默认 true: 代理出口国家与表单国家不一致即失败
   max_concurrent?: number; // 授权段并发上限
+}
+
+/** BA 授权监控日志条目 (全局 store, 切换分栏/重挂载不丢失) */
+export interface BAFeedItem {
+  ts: number;
+  token: string;
+  level: "ok" | "info" | "warn" | "err";
+  msg: string;
+}
+
+/** BA 记录轮询快照 (用于 feed 增量对比) */
+export interface BABaSnap {
+  status: string;
+  step: string;
+  error: string;
+  source: string;
+  last_msg: string;
 }
 
 /** 视图名称 */

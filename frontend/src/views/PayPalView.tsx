@@ -1,25 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useStore } from "../store/useStore";
 import { api } from "../api/client";
-import type { BAAuthRecord, BAAuthConfig, BAStep, SMAQuote } from "../types";
+import type { BAAuthRecord, BAAuthConfig, BAStep, SMAQuote, BAFeedItem, BABaSnap } from "../types";
 import { BA_STEPS, BA_STEP_CN } from "../types";
 
-/* ── 授权监控日志类型 ── */
-interface FeedItem {
-  ts: number;
-  token: string;
-  level: "ok" | "info" | "warn" | "err";
-  msg: string;
-}
+/* ── 授权监控日志类型 (类型定义在 types, store 持有全局实例) ── */
 
-const FEED_BADGE: Record<FeedItem["level"], string> = {
+const FEED_BADGE: Record<BAFeedItem["level"], string> = {
   ok: "badge-success",
   info: "badge-info",
   warn: "badge-warn",
   err: "badge-danger",
 };
 
-const FEED_LABEL: Record<FeedItem["level"], string> = {
+const FEED_LABEL: Record<BAFeedItem["level"], string> = {
   ok: "成功",
   info: "信息",
   warn: "警告",
@@ -102,10 +96,16 @@ export function PayPalView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
 
-  // 实时监控日志
-  const [feed, setFeed] = useState<FeedItem[]>([]);
+  // 实时监控日志 (全局 store: 切换分栏/重挂载不丢)
+  const baFeed = useStore((s) => s.baFeed);
+  const baSnap = useStore((s) => s.baSnap);
+  const pushBaFeed = useStore((s) => s.pushBaFeed);
+  const clearBaFeed = useStore((s) => s.clearBaFeed);
+  const setBaSnap = useStore((s) => s.setBaSnap);
+  const rehydrateBaFeed = useStore((s) => s.rehydrateBaFeed);
   const [now, setNow] = useState(Date.now());
-  const prevRecRef = useRef<Map<string, { status: string; step: string; error: string; source: string; last_msg: string }> | null>(null);
+  const baFeedRef = useRef<ReturnType<typeof useStore.getState>["baFeed"]>(baFeed);
+  baFeedRef.current = baFeed;
 
   const pendingFromChains = Object.values(chainStates).filter(
     (c) => c.status === "success" && c.url && c.url.includes("ba_token=BA-")
@@ -187,7 +187,7 @@ export function PayPalView() {
     loadCountryMeta();
   }, [loadCountryMeta]);
 
-  // 实时监控: 3s 轮询 records, 对比前后状态生成授权日志流
+  // 实时监控: 3s 轮询 records, 对比前后状态生成授权日志流 (feed 在全局 store)
   useEffect(() => {
     let alive = true;
     const tick = async () => {
@@ -196,21 +196,23 @@ export function PayPalView() {
         if (!alive || !res || !Array.isArray(res.records)) return;
         const records = res.records as BAAuthRecord[];
         setBaRecords(records);
-        const items: FeedItem[] = [];
-        const prev = prevRecRef.current;
-        const next = new Map<string, { status: string; step: string; error: string; source: string; last_msg: string }>();
+        // 首次 (store 无快照, 如刷新后): 重建基线, 不刷屏
+        let prev = useStore.getState().baSnap;
+        if (prev === null) {
+          rehydrateBaFeed(records);
+          prev = useStore.getState().baSnap;
+        }
+        const items: BAFeedItem[] = [];
+        const next = new Map<string, BABaSnap>();
         for (const r of records) {
-          const snap = { status: r.status, step: r.step, error: r.error, source: r.source || "", last_msg: r.last_msg || "" };
+          const snap: BABaSnap = { status: r.status, step: r.step, error: r.error, source: r.source || "", last_msg: r.last_msg || "" };
           next.set(r.ba_token, snap);
           const p = prev?.get(r.ba_token);
           if (!p) {
-            // 首次轮询只建基线, 不产生日志 (避免全量"加入队列"刷屏)
-            if (prev !== null) {
-              items.push({
-                ts: Date.now(), token: r.ba_token, level: "info",
-                msg: `${r.source === "manual" ? "手动导入" : "加入队列"} · 国家 ${r.country || "?"}`,
-              });
-            }
+            items.push({
+              ts: Date.now(), token: r.ba_token, level: "info",
+              msg: `${r.source === "manual" ? "手动导入" : "加入队列"} · 国家 ${r.country || "?"}`,
+            });
             continue;
           }
           if (p.status !== r.status) {
@@ -238,10 +240,8 @@ export function PayPalView() {
             }
           }
         }
-        prevRecRef.current = next;
-        if (items.length) {
-          setFeed((f) => [...items.reverse(), ...f].slice(0, 200));
-        }
+        setBaSnap(next);
+        items.forEach((item) => pushBaFeed(item));
       } catch {
         /* 后端不可用时不报错 */
       }
@@ -252,7 +252,7 @@ export function PayPalView() {
       alive = false;
       clearInterval(timer);
     };
-  }, []);
+  }, [pushBaFeed, setBaSnap, rehydrateBaFeed]);
 
   // running 记录已运行时长: 每秒刷新一次
   useEffect(() => {
@@ -622,7 +622,7 @@ export function PayPalView() {
           <span className="tag">运行中 {stats.running}</span>
           <span className="tag" style={{ color: "var(--ok)" }}>成功 {stats.success}</span>
           <span className="tag" style={{ color: "var(--danger)" }}>失败 {stats.failed}</span>
-          <button className="btn btn-sm btn-ghost" onClick={() => setFeed([])}>
+          <button className="btn btn-sm btn-ghost" onClick={() => clearBaFeed()}>
             清空日志
           </button>
         </div>
@@ -647,13 +647,13 @@ export function PayPalView() {
               ))}
             </div>
           )}
-          {feed.length === 0 ? (
+          {baFeed.length === 0 ? (
             <div className="feed-empty">
               暂无授权日志 — 队列有状态变化时 (导入/启动/步骤/取号/OTP/成功/失败/删除) 实时显示在此
             </div>
           ) : (
             <div className="monitor-feed">
-              {feed.map((f, i) => (
+              {baFeed.map((f, i) => (
                 <div className="feed-row" key={`${f.ts}-${i}`}>
                   <span className="feed-ts">
                     {new Date(f.ts).toLocaleTimeString("zh-CN", { hour12: false })}
