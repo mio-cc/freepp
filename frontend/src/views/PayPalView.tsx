@@ -89,9 +89,6 @@ const CAPTCHA_BADGE: Record<string, string> = {
   "": "badge-muted",
 };
 
-/* 接码价格区间预设 (USD/号, 双击滑块预设) */
-const SMS_PRICE_TIERS = ["0.01", "0.02", "0.05", "0.10", "0.25", "0.50"] as const;
-
 export function PayPalView() {
   const pushLog = useStore((s) => s.pushLog);
   const chainStates = useStore((s) => s.chainStates);
@@ -1193,25 +1190,6 @@ export function PayPalView() {
                       上限 {smsMax > 0 ? `$${fmtPrice(smsMax)}` : "∞ 不限"}
                     </span>
                   </div>
-                </div>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-                  {SMS_PRICE_TIERS.map((t) => (
-                    <button
-                      key={t}
-                      className={`btn btn-sm ${config.sms_price === t ? "btn-primary" : ""}`}
-                      title="上限快捷预设"
-                      onClick={() => setConfig({ ...config, sms_price: t })}
-                    >
-                      ${t}
-                    </button>
-                  ))}
-                  <button
-                    className={`btn btn-sm ${smsMax <= 0 ? "btn-primary" : ""}`}
-                    title="上限不限: 区间内全部价位的号都可取"
-                    onClick={() => setConfig({ ...config, sms_price: "0" })}
-                  >
-                    不限
-                  </button>
                 </div>
                 <span className="setting-hint">
                   {smsPrices.length > 0
