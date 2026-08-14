@@ -265,21 +265,390 @@ CARD_BINS: dict[str, list[tuple[str, int, str, str, int]]] = {
         ("558645", 16, "MASTER_CARD", "CREDIT", 3), ("556670", 16, "MASTER_CARD", "CREDIT", 3),
         ("554417", 16, "MASTER_CARD", "CREDIT", 3), ("549021", 16, "MASTER_CARD", "CREDIT", 3),
     ],
-    "US": [("4", 16, "VISA", "CREDIT", 3), ("51", 16, "MASTER_CARD", "CREDIT", 3),
-           ("4", 16, "VISA", "DEBIT", 3), ("53", 16, "MASTER_CARD", "DEBIT", 3)],
-    "JP": [("4", 16, "VISA", "CREDIT", 3), ("35", 16, "JCB", "CREDIT", 3), ("55", 16, "JCB", "CREDIT", 3)],
-    "GB": [("4", 16, "VISA", "CREDIT", 3), ("53", 16, "MASTER_CARD", "DEBIT", 3)],
-    "DE": [("4", 16, "VISA", "CREDIT", 3), ("52", 16, "MASTER_CARD", "DEBIT", 3), ("34", 15, "AMEX", "CREDIT", 4)],
-    "TH": [("4", 16, "VISA", "CREDIT", 3), ("51", 16, "MASTER_CARD", "DEBIT", 3), ("34", 15, "AMEX", "CREDIT", 4)],
+    # US 池扩充 (2026-08-14): 公开 BIN/IIN 目录 (binlist.io/bincheck.org/creditcardvalidator/bindb),
+    # 覆盖 Chase / Bank of America / Wells Fargo / Citibank / Capital One / U.S. Bank / Discover / Amex
+    "US": [
+        # Chase VISA
+        ("414720", 16, "VISA", "CREDIT", 3), ("475050", 16, "VISA", "CREDIT", 3),
+        ("401135", 16, "VISA", "CREDIT", 3), ("401136", 16, "VISA", "CREDIT", 3),
+        ("402297", 16, "VISA", "CREDIT", 3), ("438857", 16, "VISA", "CREDIT", 3),
+        ("436610", 16, "VISA", "CREDIT", 3), ("436611", 16, "VISA", "CREDIT", 3),
+        ("436617", 16, "VISA", "CREDIT", 3),
+        # Bank of America VISA
+        ("414716", 16, "VISA", "CREDIT", 3), ("449533", 16, "VISA", "CREDIT", 3),
+        ("401901", 16, "VISA", "CREDIT", 3), ("401902", 16, "VISA", "CREDIT", 3),
+        ("402076", 16, "VISA", "CREDIT", 3), ("435680", 16, "VISA", "DEBIT", 3),
+        ("435681", 16, "VISA", "DEBIT", 3), ("435682", 16, "VISA", "DEBIT", 3),
+        # Wells Fargo VISA
+        ("416724", 16, "VISA", "DEBIT", 3), ("434256", 16, "VISA", "DEBIT", 3),
+        ("434257", 16, "VISA", "DEBIT", 3), ("473099", 16, "VISA", "DEBIT", 3),
+        ("475637", 16, "VISA", "DEBIT", 3), ("400151", 16, "VISA", "DEBIT", 3),
+        ("400173", 16, "VISA", "DEBIT", 3), ("400205", 16, "VISA", "DEBIT", 3),
+        # Citibank
+        ("414711", 16, "VISA", "CREDIT", 3), ("400919", 16, "VISA", "CREDIT", 3),
+        ("400927", 16, "VISA", "CREDIT", 3), ("230050", 16, "MASTER_CARD", "DEBIT", 3),
+        # Capital One
+        ("400344", 16, "VISA", "CREDIT", 3), ("401472", 16, "VISA", "CREDIT", 3),
+        ("402265", 16, "VISA", "CREDIT", 3), ("486236", 16, "VISA", "CREDIT", 3),
+        ("517805", 16, "MASTER_CARD", "CREDIT", 3),
+        # U.S. Bank
+        ("408022", 16, "VISA", "DEBIT", 3), ("408845", 16, "VISA", "CREDIT", 3),
+        ("408846", 16, "VISA", "CREDIT", 3), ("408847", 16, "VISA", "CREDIT", 3),
+        ("436618", 16, "VISA", "DEBIT", 3), ("414780", 16, "VISA", "CREDIT", 3),
+        # 其他 US 发卡行
+        ("440319", 16, "VISA", "CREDIT", 3), ("415874", 16, "VISA", "DEBIT", 3),
+        ("482870", 16, "VISA", "DEBIT", 3),
+        ("553370", 16, "MASTER_CARD", "CREDIT", 3), ("548009", 16, "MASTER_CARD", "CREDIT", 3),
+        ("475423", 16, "VISA", "DEBIT", 3), ("475427", 16, "VISA", "DEBIT", 3),
+        ("517669", 16, "MASTER_CARD", "CREDIT", 3),
+        ("517869", 16, "MASTER_CARD", "DEBIT", 3),
+        ("601100", 16, "DISCOVER", "CREDIT", 3), ("601101", 16, "DISCOVER", "CREDIT", 3),
+        ("373197", 15, "AMEX", "CREDIT", 4), ("373198", 15, "AMEX", "CREDIT", 4),
+        ("373432", 15, "AMEX", "CREDIT", 4),
+    ],
+    # JP 池扩充: Rakuten / Mitsubishi UFJ Nicos / SMBC / Saison / Mizuho / EPOS / JCB
+    "JP": [
+        # Rakuten
+        ("429769", 16, "VISA", "CREDIT", 3), ("429770", 16, "VISA", "CREDIT", 3),
+        ("429771", 16, "VISA", "CREDIT", 3), ("429772", 16, "VISA", "CREDIT", 3),
+        ("465993", 16, "VISA", "CREDIT", 3), ("466778", 16, "VISA", "CREDIT", 3),
+        ("492371", 16, "VISA", "CREDIT", 3), ("492372", 16, "VISA", "CREDIT", 3),
+        # Mitsubishi UFJ Nicos / MUFG
+        ("453450", 16, "VISA", "CREDIT", 3), ("521231", 16, "MASTER_CARD", "CREDIT", 3),
+        ("521232", 16, "MASTER_CARD", "CREDIT", 3), ("521233", 16, "MASTER_CARD", "CREDIT", 3),
+        ("521234", 16, "MASTER_CARD", "CREDIT", 3), ("521253", 16, "MASTER_CARD", "CREDIT", 3),
+        ("521255", 16, "MASTER_CARD", "CREDIT", 3), ("521257", 16, "MASTER_CARD", "CREDIT", 3),
+        ("222924", 16, "MASTER_CARD", "CREDIT", 3),
+        # Sumitomo Mitsui (SMBC)
+        ("498001", 16, "VISA", "CREDIT", 3), ("530232", 16, "MASTER_CARD", "CREDIT", 3),
+        ("533491", 16, "MASTER_CARD", "CREDIT", 3), ("222880", 16, "MASTER_CARD", "CREDIT", 3),
+        ("222897", 16, "MASTER_CARD", "CREDIT", 3),
+        # Saison / Mizuho / EPOS
+        ("454153", 16, "VISA", "CREDIT", 3), ("454294", 16, "VISA", "CREDIT", 3),
+        ("489784", 16, "VISA", "CREDIT", 3), ("377783", 15, "AMEX", "CREDIT", 4),
+        # JCB (泛化段 35xx 本身即 JCB 网络, 类型恒对应)
+        ("35", 16, "JCB", "CREDIT", 3),
+    ],
+    # GB 池扩充: Barclays / Lloyds / HSBC / NatWest / Santander / RBS / MBNA / Tesco Bank
+    "GB": [
+        # Barclays VISA
+        ("402147", 16, "VISA", "CREDIT", 3), ("402148", 16, "VISA", "CREDIT", 3),
+        ("402152", 16, "VISA", "CREDIT", 3), ("409023", 16, "VISA", "CREDIT", 3),
+        ("409024", 16, "VISA", "CREDIT", 3), ("409025", 16, "VISA", "CREDIT", 3),
+        ("409026", 16, "VISA", "CREDIT", 3), ("412280", 16, "VISA", "CREDIT", 3),
+        ("412282", 16, "VISA", "CREDIT", 3), ("412991", 16, "VISA", "CREDIT", 3),
+        ("412992", 16, "VISA", "CREDIT", 3), ("412993", 16, "VISA", "CREDIT", 3),
+        ("425757", 16, "VISA", "CREDIT", 3), ("426501", 16, "VISA", "CREDIT", 3),
+        ("426525", 16, "VISA", "CREDIT", 3), ("427700", 16, "VISA", "CREDIT", 3),
+        ("429595", 16, "VISA", "CREDIT", 3), ("447318", 16, "VISA", "CREDIT", 3),
+        ("449355", 16, "VISA", "CREDIT", 3), ("451154", 16, "VISA", "CREDIT", 3),
+        ("451155", 16, "VISA", "CREDIT", 3), ("461250", 16, "VISA", "CREDIT", 3),
+        ("462747", 16, "VISA", "CREDIT", 3), ("485859", 16, "VISA", "CREDIT", 3),
+        ("400115", 16, "VISA", "DEBIT", 3), ("408367", 16, "VISA", "DEBIT", 3),
+        ("409400", 16, "VISA", "DEBIT", 3), ("409401", 16, "VISA", "DEBIT", 3),
+        ("409402", 16, "VISA", "DEBIT", 3), ("430532", 16, "VISA", "DEBIT", 3),
+        ("453978", 16, "VISA", "DEBIT", 3), ("453979", 16, "VISA", "DEBIT", 3),
+        ("456725", 16, "VISA", "DEBIT", 3), ("465858", 16, "VISA", "DEBIT", 3),
+        ("465859", 16, "VISA", "DEBIT", 3), ("465861", 16, "VISA", "DEBIT", 3),
+        ("492826", 16, "VISA", "DEBIT", 3), ("492827", 16, "VISA", "DEBIT", 3),
+        # Barclays Mastercard
+        ("513624", 16, "MASTER_CARD", "CREDIT", 3), ("514021", 16, "MASTER_CARD", "CREDIT", 3),
+        ("539616", 16, "MASTER_CARD", "CREDIT", 3), ("540002", 16, "MASTER_CARD", "CREDIT", 3),
+        ("542607", 16, "MASTER_CARD", "CREDIT", 3), ("543247", 16, "MASTER_CARD", "CREDIT", 3),
+        # Lloyds Mastercard
+        ("540055", 16, "MASTER_CARD", "CREDIT", 3), ("540403", 16, "MASTER_CARD", "CREDIT", 3),
+        ("540427", 16, "MASTER_CARD", "CREDIT", 3), ("540429", 16, "MASTER_CARD", "CREDIT", 3),
+        ("540431", 16, "MASTER_CARD", "CREDIT", 3), ("540436", 16, "MASTER_CARD", "CREDIT", 3),
+        ("540437", 16, "MASTER_CARD", "CREDIT", 3), ("540456", 16, "MASTER_CARD", "CREDIT", 3),
+        ("540463", 16, "MASTER_CARD", "CREDIT", 3), ("540471", 16, "MASTER_CARD", "CREDIT", 3),
+        ("540485", 16, "MASTER_CARD", "CREDIT", 3), ("540493", 16, "MASTER_CARD", "CREDIT", 3),
+        ("542309", 16, "MASTER_CARD", "CREDIT", 3), ("542502", 16, "MASTER_CARD", "CREDIT", 3),
+        # HSBC
+        ("486460", 16, "VISA", "CREDIT", 3), ("485738", 16, "VISA", "CREDIT", 3),
+        ("447692", 16, "VISA", "CREDIT", 3), ("540251", 16, "MASTER_CARD", "CREDIT", 3),
+        ("540252", 16, "MASTER_CARD", "CREDIT", 3), ("540903", 16, "MASTER_CARD", "CREDIT", 3),
+        ("542101", 16, "MASTER_CARD", "CREDIT", 3), ("542597", 16, "MASTER_CARD", "CREDIT", 3),
+        ("542854", 16, "MASTER_CARD", "CREDIT", 3), ("543131", 16, "MASTER_CARD", "CREDIT", 3),
+        # NatWest / RBS (VISA debit, Mastercard credit)
+        ("475110", 16, "VISA", "DEBIT", 3), ("475116", 16, "VISA", "DEBIT", 3),
+        ("475117", 16, "VISA", "DEBIT", 3), ("475118", 16, "VISA", "DEBIT", 3),
+        ("540964", 16, "MASTER_CARD", "CREDIT", 3), ("542451", 16, "MASTER_CARD", "CREDIT", 3),
+        ("542515", 16, "MASTER_CARD", "CREDIT", 3), ("542516", 16, "MASTER_CARD", "CREDIT", 3),
+        ("542533", 16, "MASTER_CARD", "CREDIT", 3), ("543166", 16, "MASTER_CARD", "CREDIT", 3),
+        ("541170", 16, "MASTER_CARD", "CREDIT", 3), ("542004", 16, "MASTER_CARD", "CREDIT", 3),
+        ("542615", 16, "MASTER_CARD", "CREDIT", 3),
+        # Santander UK
+        ("475714", 16, "VISA", "DEBIT", 3), ("528689", 16, "MASTER_CARD", "CREDIT", 3),
+        ("541002", 16, "MASTER_CARD", "CREDIT", 3), ("541361", 16, "MASTER_CARD", "CREDIT", 3),
+        ("541603", 16, "MASTER_CARD", "CREDIT", 3), ("541647", 16, "MASTER_CARD", "CREDIT", 3),
+        # MBNA / Tesco Bank / Aqua
+        ("540635", 16, "MASTER_CARD", "CREDIT", 3), ("540758", 16, "MASTER_CARD", "CREDIT", 3),
+        ("512687", 16, "MASTER_CARD", "CREDIT", 3), ("557098", 16, "MASTER_CARD", "CREDIT", 3),
+    ],
+    # DE 池扩充: Deutsche Bank / DKB / N26
+    "DE": [
+        # Deutsche Bank VISA
+        ("404546", 16, "VISA", "CREDIT", 3), ("404547", 16, "VISA", "CREDIT", 3),
+        ("416090", 16, "VISA", "CREDIT", 3), ("416091", 16, "VISA", "CREDIT", 3),
+        ("416092", 16, "VISA", "CREDIT", 3), ("416093", 16, "VISA", "CREDIT", 3),
+        ("430514", 16, "VISA", "CREDIT", 3), ("441233", 16, "VISA", "CREDIT", 3),
+        ("441258", 16, "VISA", "CREDIT", 3), ("441259", 16, "VISA", "CREDIT", 3),
+        ("441260", 16, "VISA", "CREDIT", 3), ("441261", 16, "VISA", "CREDIT", 3),
+        ("441262", 16, "VISA", "CREDIT", 3), ("441263", 16, "VISA", "CREDIT", 3),
+        ("441264", 16, "VISA", "CREDIT", 3), ("441287", 16, "VISA", "CREDIT", 3),
+        ("441288", 16, "VISA", "CREDIT", 3), ("441293", 16, "VISA", "CREDIT", 3),
+        ("441298", 16, "VISA", "CREDIT", 3), ("448401", 16, "VISA", "CREDIT", 3),
+        ("451853", 16, "VISA", "CREDIT", 3), ("451854", 16, "VISA", "CREDIT", 3),
+        ("460190", 16, "VISA", "CREDIT", 3), ("460191", 16, "VISA", "CREDIT", 3),
+        ("474588", 16, "VISA", "CREDIT", 3), ("477912", 16, "VISA", "CREDIT", 3),
+        ("477913", 16, "VISA", "CREDIT", 3), ("485700", 16, "VISA", "CREDIT", 3),
+        ("485701", 16, "VISA", "CREDIT", 3), ("485702", 16, "VISA", "CREDIT", 3),
+        ("486455", 16, "VISA", "CREDIT", 3), ("486456", 16, "VISA", "CREDIT", 3),
+        # Deutsche Bank Mastercard
+        ("512665", 16, "MASTER_CARD", "CREDIT", 3), ("519375", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523227", 16, "MASTER_CARD", "CREDIT", 3), ("523230", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523276", 16, "MASTER_CARD", "CREDIT", 3), ("545105", 16, "MASTER_CARD", "CREDIT", 3),
+        ("545990", 16, "MASTER_CARD", "CREDIT", 3), ("545991", 16, "MASTER_CARD", "CREDIT", 3),
+        ("547268", 16, "MASTER_CARD", "CREDIT", 3), ("547341", 16, "MASTER_CARD", "CREDIT", 3),
+        ("557011", 16, "MASTER_CARD", "CREDIT", 3),
+        # DKB (Lufthansa Miles & More 等)
+        ("499897", 16, "VISA", "CREDIT", 3), ("523403", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523407", 16, "MASTER_CARD", "CREDIT", 3), ("523412", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523417", 16, "MASTER_CARD", "CREDIT", 3), ("523420", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523423", 16, "MASTER_CARD", "CREDIT", 3), ("523428", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523430", 16, "MASTER_CARD", "CREDIT", 3), ("523435", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523437", 16, "MASTER_CARD", "CREDIT", 3), ("523439", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523443", 16, "MASTER_CARD", "CREDIT", 3), ("523447", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523449", 16, "MASTER_CARD", "CREDIT", 3), ("523451", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523453", 16, "MASTER_CARD", "CREDIT", 3), ("523455", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523464", 16, "MASTER_CARD", "CREDIT", 3), ("523468", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523471", 16, "MASTER_CARD", "CREDIT", 3), ("523472", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523476", 16, "MASTER_CARD", "CREDIT", 3), ("523477", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523480", 16, "MASTER_CARD", "CREDIT", 3), ("523483", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523484", 16, "MASTER_CARD", "CREDIT", 3), ("523488", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523491", 16, "MASTER_CARD", "CREDIT", 3), ("523492", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523495", 16, "MASTER_CARD", "CREDIT", 3),
+        # N26
+        ("535584", 16, "MASTER_CARD", "DEBIT", 3), ("535585", 16, "MASTER_CARD", "DEBIT", 3),
+        ("535586", 16, "MASTER_CARD", "DEBIT", 3), ("535590", 16, "MASTER_CARD", "DEBIT", 3),
+    ],
+    # TH 池扩充: Bangkok Bank / Kasikorn / Krungthai / SCB / Krungsri / UOB / TMB / Thanachart / Citi
+    "TH": [
+        # Bangkok Bank VISA
+        ("404870", 16, "VISA", "CREDIT", 3), ("404871", 16, "VISA", "CREDIT", 3),
+        ("404872", 16, "VISA", "CREDIT", 3), ("404873", 16, "VISA", "CREDIT", 3),
+        ("404875", 16, "VISA", "CREDIT", 3), ("404876", 16, "VISA", "CREDIT", 3),
+        ("448427", 16, "VISA", "CREDIT", 3), ("454624", 16, "VISA", "CREDIT", 3),
+        ("454626", 16, "VISA", "CREDIT", 3), ("454627", 16, "VISA", "CREDIT", 3),
+        ("454631", 16, "VISA", "CREDIT", 3), ("454632", 16, "VISA", "CREDIT", 3),
+        ("473014", 16, "VISA", "CREDIT", 3), ("421315", 16, "VISA", "DEBIT", 3),
+        ("454630", 16, "VISA", "DEBIT", 3), ("462288", 16, "VISA", "DEBIT", 3),
+        # Bangkok Bank Mastercard
+        ("544464", 16, "MASTER_CARD", "CREDIT", 3), ("544469", 16, "MASTER_CARD", "CREDIT", 3),
+        ("544482", 16, "MASTER_CARD", "CREDIT", 3), ("544485", 16, "MASTER_CARD", "CREDIT", 3),
+        ("544488", 16, "MASTER_CARD", "CREDIT", 3),
+        # Kasikorn
+        ("402339", 16, "VISA", "CREDIT", 3), ("406230", 16, "VISA", "CREDIT", 3),
+        ("428380", 16, "VISA", "CREDIT", 3), ("431508", 16, "VISA", "CREDIT", 3),
+        ("438278", 16, "VISA", "CREDIT", 3), ("492141", 16, "VISA", "CREDIT", 3),
+        ("541176", 16, "MASTER_CARD", "CREDIT", 3), ("540488", 16, "MASTER_CARD", "CREDIT", 3),
+        # Krungthai Card
+        ("439111", 16, "VISA", "CREDIT", 3), ("439112", 16, "VISA", "CREDIT", 3),
+        ("439113", 16, "VISA", "CREDIT", 3), ("439114", 16, "VISA", "CREDIT", 3),
+        ("439121", 16, "VISA", "CREDIT", 3), ("439122", 16, "VISA", "CREDIT", 3),
+        ("439127", 16, "VISA", "CREDIT", 3), ("540604", 16, "MASTER_CARD", "CREDIT", 3),
+        ("540605", 16, "MASTER_CARD", "CREDIT", 3), ("540716", 16, "MASTER_CARD", "CREDIT", 3),
+        # Siam Commercial Bank
+        ("434087", 16, "VISA", "CREDIT", 3), ("434088", 16, "VISA", "CREDIT", 3),
+        ("434089", 16, "VISA", "CREDIT", 3), ("454852", 16, "VISA", "CREDIT", 3),
+        ("490733", 16, "VISA", "CREDIT", 3), ("534442", 16, "MASTER_CARD", "CREDIT", 3),
+        ("540492", 16, "MASTER_CARD", "CREDIT", 3), ("541029", 16, "MASTER_CARD", "CREDIT", 3),
+        ("541496", 16, "MASTER_CARD", "CREDIT", 3), ("541897", 16, "MASTER_CARD", "CREDIT", 3),
+        # Bank of Ayudhya (Krungsri)
+        ("424953", 16, "VISA", "CREDIT", 3), ("424954", 16, "VISA", "CREDIT", 3),
+        ("450580", 16, "VISA", "CREDIT", 3), ("455205", 16, "VISA", "CREDIT", 3),
+        ("455296", 16, "VISA", "CREDIT", 3), ("540430", 16, "MASTER_CARD", "CREDIT", 3),
+        ("540474", 16, "MASTER_CARD", "CREDIT", 3), ("541690", 16, "MASTER_CARD", "CREDIT", 3),
+        # Citi / TMB / Thanachart / UOB / SCB Thai / Krung Thai / GSB / Aeon
+        ("438679", 16, "VISA", "CREDIT", 3), ("454325", 16, "VISA", "CREDIT", 3),
+        ("455596", 16, "VISA", "CREDIT", 3), ("540432", 16, "MASTER_CARD", "CREDIT", 3),
+        ("436759", 16, "VISA", "CREDIT", 3), ("442308", 16, "VISA", "CREDIT", 3),
+        ("540040", 16, "MASTER_CARD", "CREDIT", 3), ("414167", 16, "VISA", "CREDIT", 3),
+        ("540180", 16, "MASTER_CARD", "CREDIT", 3), ("541878", 16, "MASTER_CARD", "CREDIT", 3),
+        ("407539", 16, "VISA", "CREDIT", 3), ("436807", 16, "VISA", "CREDIT", 3),
+        ("437750", 16, "VISA", "CREDIT", 3), ("541859", 16, "MASTER_CARD", "CREDIT", 3),
+        ("453215", 16, "VISA", "DEBIT", 3), ("449932", 16, "VISA", "CREDIT", 3),
+        ("451485", 16, "VISA", "CREDIT", 3), ("409061", 16, "VISA", "CREDIT", 3),
+        ("409062", 16, "VISA", "CREDIT", 3),
+    ],
     "KR": [("4", 16, "VISA", "CREDIT", 3), ("53", 16, "MASTER_CARD", "DEBIT", 3), ("35", 16, "JCB", "CREDIT", 3)],
     "AU": [("4", 16, "VISA", "CREDIT", 3), ("52", 16, "MASTER_CARD", "DEBIT", 3)],
-    "VN": [("4", 16, "VISA", "CREDIT", 3), ("51", 16, "MASTER_CARD", "DEBIT", 3)],
+    # VN 池扩充: Vietcombank / Sacombank / VPBank / MB / BIDV / VIB / MSB / SCB / Shinhan / HDBank / SeABank / OCB / VietinBank / LPB / PVComBank / SHB (公开 IIN 目录 + SBV 官方)
+    "VN": [
+        # Vietcombank
+        ("403277", 16, "VISA", "DEBIT", 3), ("428310", 16, "VISA", "DEBIT", 3),
+        ("452404", 16, "VISA", "DEBIT", 3), ("477390", 16, "VISA", "DEBIT", 3),
+        ("222806", 16, "MASTER_CARD", "CREDIT", 3), ("526418", 16, "MASTER_CARD", "DEBIT", 3),
+        # Sacombank
+        ("401520", 16, "VISA", "DEBIT", 3), ("422151", 16, "VISA", "DEBIT", 3),
+        ("436438", 16, "VISA", "CREDIT", 3), ("455376", 16, "VISA", "CREDIT", 3),
+        ("461138", 16, "VISA", "DEBIT", 3), ("461140", 16, "VISA", "CREDIT", 3),
+        ("461337", 16, "VISA", "CREDIT", 3), ("466243", 16, "VISA", "CREDIT", 3),
+        ("469654", 16, "VISA", "DEBIT", 3), ("472074", 16, "VISA", "CREDIT", 3),
+        ("472075", 16, "VISA", "CREDIT", 3), ("486265", 16, "VISA", "CREDIT", 3),
+        ("512341", 16, "MASTER_CARD", "CREDIT", 3), ("526830", 16, "MASTER_CARD", "CREDIT", 3),
+        ("552332", 16, "MASTER_CARD", "CREDIT", 3), ("517416", 16, "MASTER_CARD", "DEBIT", 3),
+        # VPBank
+        ("405280", 16, "VISA", "CREDIT", 3), ("406453", 16, "VISA", "CREDIT", 3),
+        ("419834", 16, "VISA", "CREDIT", 3), ("454107", 16, "VISA", "CREDIT", 3),
+        ("478668", 16, "VISA", "CREDIT", 3), ("454119", 16, "VISA", "DEBIT", 3),
+        ("518966", 16, "MASTER_CARD", "CREDIT", 3), ("520399", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523975", 16, "MASTER_CARD", "CREDIT", 3), ("524394", 16, "MASTER_CARD", "CREDIT", 3),
+        ("520395", 16, "MASTER_CARD", "DEBIT", 3), ("521377", 16, "MASTER_CARD", "DEBIT", 3),
+        ("528626", 16, "MASTER_CARD", "DEBIT", 3),
+        # MB
+        ("472674", 16, "VISA", "CREDIT", 3), ("484803", 16, "VISA", "CREDIT", 3),
+        ("484804", 16, "VISA", "CREDIT", 3), ("548566", 16, "MASTER_CARD", "DEBIT", 3),
+        # BIDV / VIB
+        ("402534", 16, "VISA", "CREDIT", 3), ("436467", 16, "VISA", "CREDIT", 3),
+        ("436468", 16, "VISA", "CREDIT", 3), ("457560", 16, "VISA", "DEBIT", 3),
+        ("457561", 16, "VISA", "DEBIT", 3),
+        ("498766", 16, "VISA", "CREDIT", 3), ("498767", 16, "VISA", "CREDIT", 3),
+        ("498768", 16, "VISA", "DEBIT", 3), ("498769", 16, "VISA", "DEBIT", 3),
+        # MSB / SCB / Shinhan / HDBank
+        ("402204", 16, "VISA", "DEBIT", 3), ("402215", 16, "VISA", "DEBIT", 3),
+        ("412189", 16, "VISA", "CREDIT", 3), ("472265", 16, "VISA", "CREDIT", 3),
+        ("479155", 16, "VISA", "CREDIT", 3),
+        ("453618", 16, "VISA", "DEBIT", 3), ("489516", 16, "VISA", "CREDIT", 3),
+        ("489517", 16, "VISA", "CREDIT", 3), ("489518", 16, "VISA", "CREDIT", 3),
+        ("510235", 16, "MASTER_CARD", "CREDIT", 3), ("545579", 16, "MASTER_CARD", "CREDIT", 3),
+        ("554627", 16, "MASTER_CARD", "CREDIT", 3), ("550796", 16, "MASTER_CARD", "DEBIT", 3),
+        ("430389", 16, "VISA", "CREDIT", 3), ("516294", 16, "MASTER_CARD", "CREDIT", 3),
+        ("532451", 16, "MASTER_CARD", "CREDIT", 3), ("510995", 16, "MASTER_CARD", "DEBIT", 3),
+        ("511409", 16, "MASTER_CARD", "DEBIT", 3), ("521976", 16, "MASTER_CARD", "DEBIT", 3),
+        ("416259", 16, "VISA", "CREDIT", 3), ("462478", 16, "VISA", "CREDIT", 3),
+        ("515131", 16, "MASTER_CARD", "CREDIT", 3), ("532137", 16, "MASTER_CARD", "DEBIT", 3),
+        # SeABank / OCB / VietinBank / LPB / PVComBank / SHB
+        ("405082", 16, "VISA", "DEBIT", 3), ("436545", 16, "VISA", "CREDIT", 3),
+        ("436546", 16, "VISA", "CREDIT", 3), ("476636", 16, "VISA", "CREDIT", 3),
+        ("523611", 16, "MASTER_CARD", "CREDIT", 3), ("540392", 16, "MASTER_CARD", "DEBIT", 3),
+        ("442415", 16, "VISA", "DEBIT", 3), ("442416", 16, "VISA", "DEBIT", 3),
+        ("421595", 16, "VISA", "DEBIT", 3), ("462842", 16, "VISA", "CREDIT", 3),
+        ("462843", 16, "VISA", "CREDIT", 3), ("462844", 16, "VISA", "CREDIT", 3),
+        ("469672", 16, "VISA", "CREDIT", 3), ("469673", 16, "VISA", "CREDIT", 3),
+        ("413534", 16, "VISA", "CREDIT", 3), ("413535", 16, "VISA", "CREDIT", 3),
+        ("406598", 16, "VISA", "CREDIT", 3), ("418248", 16, "VISA", "DEBIT", 3),
+        ("511962", 16, "MASTER_CARD", "CREDIT", 3), ("538742", 16, "MASTER_CARD", "CREDIT", 3),
+        ("542553", 16, "MASTER_CARD", "CREDIT", 3), ("519501", 16, "MASTER_CARD", "CREDIT", 3),
+        ("528645", 16, "MASTER_CARD", "DEBIT", 3), ("533147", 16, "MASTER_CARD", "CREDIT", 3),
+        ("533968", 16, "MASTER_CARD", "CREDIT", 3), ("559270", 16, "MASTER_CARD", "CREDIT", 3),
+    ],
     "BH": [("4", 16, "VISA", "CREDIT", 3), ("53", 16, "MASTER_CARD", "DEBIT", 3)],
     "AE": [("4", 16, "VISA", "CREDIT", 3), ("51", 16, "MASTER_CARD", "DEBIT", 3)],
     "TR": [("4", 16, "VISA", "CREDIT", 3), ("51", 16, "MASTER_CARD", "DEBIT", 3), ("9792", 16, "TROY", "CREDIT", 3)],
-    "NL": [("4", 16, "VISA", "CREDIT", 3), ("51", 16, "MASTER_CARD", "DEBIT", 3)],
+    # NL 池扩充: ABN AMRO / Rabobank / ING / International Card Services / ANWB / Stripe / Amex
+    "NL": [
+        ("456353", 16, "VISA", "CREDIT", 3), ("456354", 16, "VISA", "CREDIT", 3),
+        ("472906", 16, "VISA", "DEBIT", 3), ("405629", 16, "VISA", "CREDIT", 3),
+        ("417274", 16, "VISA", "CREDIT", 3),
+        ("400850", 16, "VISA", "CREDIT", 3), ("400851", 16, "VISA", "CREDIT", 3),
+        ("400852", 16, "VISA", "CREDIT", 3), ("400853", 16, "VISA", "CREDIT", 3),
+        ("400854", 16, "VISA", "CREDIT", 3), ("400855", 16, "VISA", "CREDIT", 3),
+        ("400856", 16, "VISA", "CREDIT", 3), ("400857", 16, "VISA", "CREDIT", 3),
+        ("400858", 16, "VISA", "CREDIT", 3), ("400859", 16, "VISA", "CREDIT", 3),
+        ("522078", 16, "MASTER_CARD", "CREDIT", 3), ("534126", 16, "MASTER_CARD", "CREDIT", 3),
+        ("520953", 16, "MASTER_CARD", "CREDIT", 3), ("520639", 16, "MASTER_CARD", "CREDIT", 3),
+        ("524886", 16, "MASTER_CARD", "CREDIT", 3), ("532964", 16, "MASTER_CARD", "CREDIT", 3),
+        ("532965", 16, "MASTER_CARD", "CREDIT", 3), ("553417", 16, "MASTER_CARD", "CREDIT", 3),
+        ("555220", 16, "MASTER_CARD", "CREDIT", 3), ("555221", 16, "MASTER_CARD", "CREDIT", 3),
+        ("555308", 16, "MASTER_CARD", "CREDIT", 3), ("555309", 16, "MASTER_CARD", "CREDIT", 3),
+        ("555310", 16, "MASTER_CARD", "CREDIT", 3), ("555311", 16, "MASTER_CARD", "CREDIT", 3),
+        ("556681", 16, "MASTER_CARD", "CREDIT", 3), ("523635", 16, "MASTER_CARD", "CREDIT", 3),
+        ("523636", 16, "MASTER_CARD", "CREDIT", 3),
+        ("510008", 16, "MASTER_CARD", "CREDIT", 3), ("541330", 16, "MASTER_CARD", "CREDIT", 3),
+        ("375309", 15, "AMEX", "CREDIT", 4), ("375331", 15, "AMEX", "CREDIT", 4),
+        ("375335", 15, "AMEX", "CREDIT", 4), ("375368", 15, "AMEX", "CREDIT", 4),
+        ("375388", 15, "AMEX", "CREDIT", 4),
+    ],
     "CI": [("4", 16, "VISA", "CREDIT", 3), ("51", 16, "MASTER_CARD", "DEBIT", 3)],
     "AO": [("4", 16, "VISA", "CREDIT", 3), ("51", 16, "MASTER_CARD", "DEBIT", 3)],
+    # MX 池扩充 (2026-08-14): Banorte / BBVA Bancomer / Banamex / Santander / HSBC / Scotiabank / Azteca / Invex
+    "MX": [
+        # Banorte VISA
+        ("418925", 16, "VISA", "CREDIT", 3), ("491341", 16, "VISA", "CREDIT", 3),
+        ("491366", 16, "VISA", "CREDIT", 3), ("491375", 16, "VISA", "CREDIT", 3),
+        ("491376", 16, "VISA", "CREDIT", 3), ("491575", 16, "VISA", "CREDIT", 3),
+        ("491576", 16, "VISA", "CREDIT", 3), ("493158", 16, "VISA", "CREDIT", 3),
+        ("493172", 16, "VISA", "CREDIT", 3), ("493173", 16, "VISA", "CREDIT", 3),
+        ("491566", 16, "VISA", "DEBIT", 3), ("495166", 16, "VISA", "DEBIT", 3),
+        # Banorte Mastercard
+        ("544549", 16, "MASTER_CARD", "CREDIT", 3), ("547078", 16, "MASTER_CARD", "CREDIT", 3),
+        ("547096", 16, "MASTER_CARD", "CREDIT", 3),
+        # BBVA Bancomer
+        ("408176", 16, "VISA", "DEBIT", 3), ("409851", 16, "VISA", "DEBIT", 3),
+        ("410177", 16, "VISA", "DEBIT", 3), ("410180", 16, "VISA", "CREDIT", 3),
+        ("410181", 16, "VISA", "CREDIT", 3), ("415231", 16, "VISA", "DEBIT", 3),
+        ("415327", 16, "VISA", "CREDIT", 3), ("418073", 16, "VISA", "CREDIT", 3),
+        ("418075", 16, "VISA", "CREDIT", 3), ("418077", 16, "VISA", "CREDIT", 3),
+        ("418080", 16, "VISA", "CREDIT", 3), ("418093", 16, "VISA", "CREDIT", 3),
+        ("418094", 16, "VISA", "CREDIT", 3), ("441310", 16, "VISA", "CREDIT", 3),
+        ("441311", 16, "VISA", "CREDIT", 3), ("441314", 16, "VISA", "CREDIT", 3),
+        ("441312", 16, "VISA", "DEBIT", 3), ("441313", 16, "VISA", "DEBIT", 3),
+        ("444085", 16, "VISA", "CREDIT", 3), ("444086", 16, "VISA", "CREDIT", 3),
+        ("446117", 16, "VISA", "DEBIT", 3), ("446118", 16, "VISA", "DEBIT", 3),
+        ("455500", 16, "VISA", "CREDIT", 3), ("455503", 16, "VISA", "CREDIT", 3),
+        ("455504", 16, "VISA", "CREDIT", 3), ("455505", 16, "VISA", "CREDIT", 3),
+        ("493160", 16, "VISA", "CREDIT", 3), ("493161", 16, "VISA", "CREDIT", 3),
+        ("493162", 16, "VISA", "CREDIT", 3), ("494398", 16, "VISA", "CREDIT", 3),
+        ("498585", 16, "VISA", "CREDIT", 3),
+        # Banamex / Santander / HSBC / Scotiabank / Azteca / Invex
+        ("441541", 16, "VISA", "CREDIT", 3), ("441545", 16, "VISA", "DEBIT", 3),
+        ("441549", 16, "VISA", "DEBIT", 3), ("451331", 16, "VISA", "DEBIT", 3),
+        ("433465", 16, "VISA", "CREDIT", 3), ("441507", 16, "VISA", "CREDIT", 3),
+        ("451299", 16, "VISA", "CREDIT", 3), ("451312", 16, "VISA", "DEBIT", 3),
+        ("547046", 16, "MASTER_CARD", "CREDIT", 3),
+        ("441551", 16, "VISA", "CREDIT", 3), ("452412", 16, "VISA", "DEBIT", 3),
+        ("444449", 16, "VISA", "CREDIT", 3), ("441548", 16, "VISA", "CREDIT", 3),
+        ("446137", 16, "VISA", "CREDIT", 3),
+    ],
+    # IN 池扩充 (2026-08-14): HDFC / ICICI / SBI / Axis
+    "IN": [
+        # HDFC VISA credit
+        ("401403", 16, "VISA", "CREDIT", 3), ("402219", 16, "VISA", "CREDIT", 3),
+        ("402359", 16, "VISA", "CREDIT", 3), ("404249", 16, "VISA", "CREDIT", 3),
+        ("404276", 16, "VISA", "CREDIT", 3), ("405028", 16, "VISA", "CREDIT", 3),
+        ("406578", 16, "VISA", "CREDIT", 3), ("407497", 16, "VISA", "CREDIT", 3),
+        ("407498", 16, "VISA", "CREDIT", 3), ("416317", 16, "VISA", "CREDIT", 3),
+        ("417410", 16, "VISA", "CREDIT", 3), ("418136", 16, "VISA", "CREDIT", 3),
+        ("418218", 16, "VISA", "CREDIT", 3), ("424246", 16, "VISA", "CREDIT", 3),
+        ("425698", 16, "VISA", "CREDIT", 3), ("430570", 16, "VISA", "CREDIT", 3),
+        ("434155", 16, "VISA", "CREDIT", 3), ("434168", 16, "VISA", "CREDIT", 3),
+        ("434677", 16, "VISA", "CREDIT", 3), ("434678", 16, "VISA", "CREDIT", 3),
+        ("435376", 16, "VISA", "CREDIT", 3), ("435393", 16, "VISA", "CREDIT", 3),
+        ("436152", 16, "VISA", "CREDIT", 3), ("437546", 16, "VISA", "CREDIT", 3),
+        ("442142", 16, "VISA", "CREDIT", 3), ("451104", 16, "VISA", "CREDIT", 3),
+        ("457262", 16, "VISA", "CREDIT", 3),
+        # HDFC VISA debit
+        ("400914", 16, "VISA", "DEBIT", 3), ("403875", 16, "VISA", "DEBIT", 3),
+        ("405988", 16, "VISA", "DEBIT", 3), ("408981", 16, "VISA", "DEBIT", 3),
+        ("414098", 16, "VISA", "DEBIT", 3), ("415921", 16, "VISA", "DEBIT", 3),
+        ("416021", 16, "VISA", "DEBIT", 3), ("416233", 16, "VISA", "DEBIT", 3),
+        ("418219", 16, "VISA", "DEBIT", 3), ("421340", 16, "VISA", "DEBIT", 3),
+        ("423975", 16, "VISA", "DEBIT", 3), ("427879", 16, "VISA", "DEBIT", 3),
+        ("438624", 16, "VISA", "DEBIT", 3), ("440384", 16, "VISA", "DEBIT", 3),
+        ("440899", 16, "VISA", "DEBIT", 3), ("442378", 16, "VISA", "DEBIT", 3),
+        ("445002", 16, "VISA", "DEBIT", 3), ("453561", 16, "VISA", "DEBIT", 3),
+        ("458280", 16, "VISA", "DEBIT", 3), ("458281", 16, "VISA", "DEBIT", 3),
+        # HDFC Mastercard
+        ("222700", 16, "MASTER_CARD", "DEBIT", 3), ("222848", 16, "MASTER_CARD", "DEBIT", 3),
+        ("222943", 16, "MASTER_CARD", "DEBIT", 3), ("223406", 16, "MASTER_CARD", "DEBIT", 3),
+        ("223487", 16, "MASTER_CARD", "DEBIT", 3), ("222703", 16, "MASTER_CARD", "CREDIT", 3),
+        ("558818", 16, "MASTER_CARD", "CREDIT", 3),
+        # ICICI / SBI / Axis
+        ("421323", 16, "VISA", "DEBIT", 3), ("421630", 16, "VISA", "DEBIT", 3),
+        ("447747", 16, "VISA", "CREDIT", 3), ("512622", 16, "MASTER_CARD", "CREDIT", 3),
+        ("468805", 16, "VISA", "DEBIT", 3),
+    ],
 }
 
 CARD_BIN_FALLBACK = "US"
@@ -324,7 +693,10 @@ def generate_country_card(country: str, used_bins: Optional[set] = None) -> dict
 
 
 def issuer_type_for(number: str) -> str:
-    """PayPal CardIssuerType enum 推导 (含 JCB/TROY, 修正 35xx->AMEX / 9792->VISA 误判)。"""
+    """PayPal CardIssuerType enum 推导 (含 JCB/TROY, 修正 35xx->AMEX / 9792->VISA 误判)。
+
+    2026-08-14 补: 50 段 Maestro 归 MASTER_CARD; 6 段分 Discover(60/64/65) 与 MC(622 UnionPay/636-639)。
+    """
     prefix2 = number[:2]
     prefix4 = number[:4]
     if prefix2 in {"35", "36"}:
@@ -333,12 +705,18 @@ def issuer_type_for(number: str) -> str:
         return "TROY"
     if prefix2 in {"34", "37"}:
         return "AMEX"
-    if "51" <= prefix2 <= "55" or ("2221" <= prefix4 <= "2720" if len(prefix4) == 4 else False):
+    if prefix4 and "2221" <= prefix4 <= "2720":
+        return "MASTER_CARD"
+    if prefix2.isdigit() and "51" <= prefix2 <= "55":
+        return "MASTER_CARD"
+    if prefix2 == "50":
         return "MASTER_CARD"
     if prefix2 == "4":
         return "VISA"
-    if prefix2 == "6":
+    if prefix2 in {"60", "64", "65"}:
         return "DISCOVER"
+    if prefix2[0] == "6":
+        return "MASTER_CARD"
     return "VISA"
 
 
