@@ -476,6 +476,7 @@ class SMSBowerOtpProvider:
         phone_cc: str = "+55",
         max_price: float | None = None,
         max_price_high: float | None = None,
+        min_price: float | None = None,
         wait_seconds: float = SMSBOWER_DEFAULT_WAIT_SECONDS,
         poll_interval_seconds: float = SMSBOWER_DEFAULT_POLL_INTERVAL_SECONDS,
         max_channel_failures: int = SMSBOWER_DEFAULT_MAX_CHANNEL_FAILURES,
@@ -489,6 +490,7 @@ class SMSBowerOtpProvider:
         self.phone_cc = str(phone_cc or "+55")
         self.max_price = float(max_price) if max_price else None
         self.max_price_high = float(max_price_high) if max_price_high else None
+        self.min_price = float(min_price) if min_price and float(min_price) > 0 else None
         self.wait_seconds = max(1.0, float(wait_seconds)) if wait_seconds >= 1 else float(wait_seconds)
         self.poll_interval_seconds = max(0.01, float(poll_interval_seconds))
         self.max_channel_failures = max(1, int(max_channel_failures))
@@ -515,54 +517,57 @@ class SMSBowerOtpProvider:
         if not prices:
             raise SMSBowerApiError(f"SMSBower has no PayPal {self.phone_cc} providers with available numbers")
 
-        budgets = [self.max_price] if self.max_price is not None else [None]
-        if self.max_price_high is not None and (self.max_price is None or self.max_price_high > self.max_price):
-            budgets.append(self.max_price_high)
+        # 单一价格区间 [min_price, max_price] 过滤 (max_price 为 None = 不限上限)
+        candidates = [
+            p for p in prices
+            if p.count > 0
+            and (self.max_price is None or p.price <= self.max_price)
+            and (self.min_price is None or p.price >= self.min_price)
+            and self.store.provider_cooldown_seconds(p.provider_id) <= 0
+        ]
+        if not candidates:
+            range_parts = []
+            if self.min_price is not None:
+                range_parts.append(f"price>={self.min_price:.4f}")
+            if self.max_price is not None:
+                range_parts.append(f"price<={self.max_price:.4f}")
+            raise SMSBowerApiError(
+                f"SMSBower has no PayPal {self.phone_cc} number in range [{', '.join(range_parts) or 'any'}]"
+            )
 
+        # 严格按平台实际价格升序逐个尝试 (不随机), 全部失败后由调用方冷却重试
+        ordered = sorted(candidates, key=lambda item: (item.price, item.provider_id))
         last_error: Exception | None = None
-        for budget in budgets:
-            candidates = [
-                p for p in prices
-                if p.count > 0
-                and (budget is None or p.price <= budget)
-                and self.store.provider_cooldown_seconds(p.provider_id) <= 0
-            ]
-            if not candidates:
-                continue
-            # 价格升序; 从最低价的前 5 家软随机 (避免连续打同一低价 provider 造成段限流)。
-            # 注意: 必须在前 5 家内抽, 不能对整个列表 sample (否则会随机抽到高价先试)。
-            ordered = sorted(candidates, key=lambda item: (item.price, item.provider_id))
-            cheapest = ordered[:5]
-            pool = cheapest if len(cheapest) <= 2 else random.sample(cheapest, len(cheapest))
-            for pick in sorted(pool, key=lambda item: (item.price, item.provider_id)):
-                try:
-                    data = self._get_number_v2(pick)
-                    activation = SMSBowerActivation(
-                        activation_id=str(data["activationId"]),
-                        phone_number=normalize_phone(data["phoneNumber"], self.phone_cc),
-                        provider_id=str(data.get("activationOperator") or data.get("provider_id") or pick.provider_id),
-                        price=_parse_float(data.get("activationCost"), pick.price),
-                        expires_at=time.time() + self.activation_ttl_seconds,
-                        reused=False,
-                        flow_id=flow_id,
-                    )
-                    logger.info(
-                        "Reserved SMSBower PayPal {} number provider={} price={} (budget={})",
-                        self.phone_cc,
-                        activation.provider_id,
-                        activation.price,
-                        budget if budget is not None else "unlimited",
-                    )
-                    return activation
-                except Exception as exc:
-                    last_error = exc
-                    self.store.record_failure(pick.provider_id, str(exc))
-                    logger.warning(
-                        "SMSBower provider {} failed (budget={}): {}",
-                        pick.provider_id,
-                        budget if budget is not None else "unlimited",
-                        exc,
-                    )
+        for pick in ordered:
+            try:
+                data = self._get_number_v2(pick)
+                activation = SMSBowerActivation(
+                    activation_id=str(data["activationId"]),
+                    phone_number=normalize_phone(data["phoneNumber"], self.phone_cc),
+                    provider_id=str(data.get("activationOperator") or data.get("provider_id") or pick.provider_id),
+                    price=_parse_float(data.get("activationCost"), pick.price),
+                    expires_at=time.time() + self.activation_ttl_seconds,
+                    reused=False,
+                    flow_id=flow_id,
+                )
+                logger.info(
+                    "Reserved SMSBower PayPal {} number provider={} price={} (range={})",
+                    self.phone_cc,
+                    activation.provider_id,
+                    activation.price,
+                    f"[{self.min_price if self.min_price is not None else 0}:{self.max_price if self.max_price is not None else 'inf'}]",
+                )
+                return activation
+            except Exception as exc:
+                last_error = exc
+                self.store.record_failure(pick.provider_id, str(exc))
+                logger.warning(
+                    "SMSBower provider {} failed (range=[{}:{}]): {}",
+                    pick.provider_id,
+                    self.min_price if self.min_price is not None else 0,
+                    self.max_price if self.max_price is not None else "inf",
+                    exc,
+                )
         if last_error is not None:
             raise SMSBowerApiError(
                 f"SMSBower could not reserve a PayPal {self.phone_cc} number: {last_error}"
@@ -686,6 +691,7 @@ def build_smsbower_provider(
     phone_cc: str = "+55",
     max_price: float | None = None,
     max_price_high: float | None = None,
+    min_price: float | None = None,
     service: str = SMSBOWER_DEFAULT_SERVICE,
 ) -> SMSBowerOtpProvider | None:
     if not smsbower_enabled(enabled):
@@ -702,6 +708,7 @@ def build_smsbower_provider(
         phone_cc=phone_cc,
         max_price=max_price,
         max_price_high=max_price_high,
+        min_price=min_price,
         service=service,
         wait_seconds=_env_float("SMSBOWER_WAIT_SECONDS", SMSBOWER_DEFAULT_WAIT_SECONDS, 1.0, 300.0),
         poll_interval_seconds=_env_float(

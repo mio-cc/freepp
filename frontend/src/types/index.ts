@@ -247,7 +247,9 @@ export interface SMAQuote {
 export interface BAAuthConfig {
   sms_provider: string;
   sms_api_key?: string; // 接码平台 API key (留空回落 .env)
-  sms_price: string; // 语义: 单号最高预算 (USD), 授权时自动选最低价供应商
+  sms_price: string; // 语义: 区间上限 (USD/号), 取号按平台实际价格升序从区间内最低价开始
+  sms_price_min?: string; // 区间下限 (USD/号), 低于此价的号不取 (默认 "0" = 不限)
+  sms_max_attempts?: number; // 取号重试轮数 (默认 12; 每轮区间内供应商全失败后冷却 2s 重试)
   sms_timeout: number;
   exit_country: string; // 兼容保留 (跟随出口国)
   identity_country?: string; // 表单国家 (默认跟随队列 record.country=提链出口国)

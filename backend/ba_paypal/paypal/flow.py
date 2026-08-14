@@ -5775,9 +5775,20 @@ class PayPalFlow:
             try:
                 activation = self.sms_provider.reserve_number(flow_id=flow_id)
             except Exception as exc:
+                # 区间内供应商已全部尝试失败 (含 NO_NUMBERS/NO_BALANCE/cooldown):
+                # 冷却后继续下一轮取号 (max_attempts 轮), 不直接放弃
                 last_reserve_error = exc
-                logger.warning("SMS provider could not reserve a number (attempt {}): {}", attempt, exc)
-                break
+                logger.warning(
+                    "SMS provider could not reserve a number (attempt {} of {}): {}",
+                    attempt, self.sms_provider.max_attempts, exc,
+                )
+                self._emit_progress(
+                    "sms",
+                    f"取号失败 (第 {attempt}/{self.sms_provider.max_attempts} 轮): {exc} — 2s 后重试",
+                    level="warn",
+                )
+                time.sleep(2.0)
+                continue
             self._update_user_phone(activation.phone_number)
             if getattr(activation, "reused", False):
                 # 复用已确认号 (同 flow 重跑 2FA): 不花钱, 不回写价格, 提示复用

@@ -49,7 +49,9 @@ _BA_CONFIG_FILE = os.path.join(
 
 _ba_config: dict[str, Any] = {
     "sms_provider": "smsbower",
-    "sms_price": "0.05",
+    "sms_price": "0.5",
+    "sms_price_min": "0",
+    "sms_max_attempts": 12,
     "sms_timeout": 15,
     "exit_country": "BR",
     "identity_country": "",
@@ -319,15 +321,21 @@ def _build_sms_provider(country: str, cfg: dict[str, Any]):
             cfg.get("sms_country"), ctx
         )
         try:
-            price = float(str(cfg.get("sms_price") or "0.02"))
+            price = float(str(cfg.get("sms_price") or "0.5"))
             if price > 0:
                 provider.max_price = price
         except Exception:
             pass
         try:
-            price_high = float(str(cfg.get("sms_price_high") or "0.3"))
-            if price_high > 0:
-                provider.max_price_high = price_high
+            price_min = float(str(cfg.get("sms_price_min") or "0"))
+            if price_min > 0:
+                provider.min_price = price_min
+        except Exception:
+            pass
+        try:
+            max_attempts = int(cfg.get("sms_max_attempts") or 12)
+            if max_attempts > 0:
+                provider.max_attempts = max(1, max_attempts)
         except Exception:
             pass
         try:

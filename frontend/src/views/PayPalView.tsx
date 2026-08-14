@@ -89,7 +89,7 @@ const CAPTCHA_BADGE: Record<string, string> = {
   "": "badge-muted",
 };
 
-/* 接码预算上限阶梯预设 (USD/号) */
+/* 接码价格区间预设 (USD/号, 双击滑块预设) */
 const SMS_PRICE_TIERS = ["0.01", "0.02", "0.05", "0.10", "0.25", "0.50"] as const;
 
 export function PayPalView() {
@@ -101,6 +101,8 @@ export function PayPalView() {
     sms_provider: "smsbower",
     sms_api_key: "",
     sms_price: "0.05",
+    sms_price_min: "0",
+    sms_max_attempts: 12,
     sms_timeout: 15,
     exit_country: "BR",
     identity_country: "",
@@ -615,18 +617,31 @@ export function PayPalView() {
   const selectedList = baRecords.filter((r) => selected.has(r.ba_token));
   const runningList = baRecords.filter((r) => r.status === "running");
 
-  // 接码报价统计 (预算行提示: 该国最低价 + 预算内可用家数)
+  // 接码价格区间统计 (滑块轨道按平台实际价格映射 + 区间内价位升序展示)
   const smsQuoteCc = (config.sms_country || config.identity_country || "BR").toUpperCase();
   const smsQuotes = quotes[smsQuoteCc];
-  const smsMinPrice =
-    smsQuotes && smsQuotes.length > 0
-      ? Math.min(...smsQuotes.map((q) => q.price))
-      : null;
-  const smsBudget = parseFloat(config.sms_price);
-  const smsInBudget =
-    smsQuotes && smsQuotes.length > 0
-      ? smsQuotes.filter((q) => (smsBudget > 0 ? q.price <= smsBudget : true)).length
-      : 0;
+  const smsPrices =
+    smsQuotes && smsQuotes.length > 0 ? smsQuotes.map((q) => q.price).sort((a, b) => a - b) : [];
+  const smsTrackMin = smsPrices.length > 0 ? smsPrices[0] : 0;
+  const smsTrackMax = smsPrices.length > 0 ? smsPrices[smsPrices.length - 1] : 0.5;
+  const smsMin = parseFloat(config.sms_price_min || "0") || 0;
+  const smsMax = parseFloat(config.sms_price) || 0; // 0 = 不限
+  const smsInRange =
+    smsPrices.length > 0
+      ? smsPrices.filter((p) => p >= smsMin && (smsMax > 0 ? p <= smsMax : true))
+      : [];
+  const smsInRangeCount = smsInRange.length;
+
+  // 轨道百分比 <-> 价格映射 (0~100 整数, 由滑块原生拖动)
+  const priceToV = (p: number) => {
+    if (smsTrackMax <= smsTrackMin) return 100;
+    return Math.round(((p - smsTrackMin) / (smsTrackMax - smsTrackMin)) * 100);
+  };
+  const vToPrice = (v: number) => smsTrackMin + (v / 100) * (smsTrackMax - smsTrackMin);
+  const fmtPrice = (p: number) => String(parseFloat(p.toFixed(4)));
+
+  const sliderMinV = smsMin <= 0 ? 0 : Math.min(100, priceToV(smsMin));
+  const sliderMaxV = smsMax <= 0 ? 100 : Math.min(100, priceToV(smsMax));
 
   useEffect(() => {
     if (smsQuoteCc && !quotes[smsQuoteCc]) loadQuote(smsQuoteCc);
@@ -1128,41 +1143,83 @@ export function PayPalView() {
               </div>
             </div>
             <div className="setting-row">
-              <span className="setting-label">接码预算上限 (USD/号)</span>
-              <div className="setting-control">
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  step={0.005}
-                  value={config.sms_price}
-                  title="阶梯取号: 只尝试价格 ≤ 上限的供应商 (从最低价开始), 0 = 不限"
-                  onChange={(e) =>
-                    setConfig({ ...config, sms_price: e.target.value })
-                  }
-                  style={{ width: 84 }}
-                />
+              <span className="setting-label">接码价格区间 (USD/号)</span>
+              <div className="setting-control" style={{ minWidth: 380 }}>
+                <div className="range-dual-wrap">
+                  <div className="range-dual">
+                    <div className="range-dual-track" />
+                    <div
+                      className="range-dual-fill"
+                      style={{ left: `${sliderMinV}%`, width: `${Math.max(0, sliderMaxV - sliderMinV)}%` }}
+                    />
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      className="range-dual-input range-dual-min"
+                      value={sliderMinV}
+                      title="区间下限: 低于此价的供应商不取号 (默认 0 = 不限)"
+                      onChange={(e) => {
+                        const v = Math.min(Number(e.target.value), sliderMaxV);
+                        setConfig({
+                          ...config,
+                          sms_price_min: v <= 0 ? "0" : fmtPrice(vToPrice(v)),
+                        });
+                      }}
+                    />
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      className="range-dual-input range-dual-max"
+                      value={sliderMaxV}
+                      title="区间上限: 高于此价的供应商不取号 (拖到最右 = 不限)"
+                      onChange={(e) => {
+                        const v = Math.max(Number(e.target.value), sliderMinV);
+                        setConfig({
+                          ...config,
+                          sms_price: v >= 100 ? "0" : fmtPrice(vToPrice(v)),
+                        });
+                      }}
+                    />
+                  </div>
+                  <div className="range-dual-labels">
+                    <span className="range-dual-val">
+                      下限 {smsMin > 0 ? `$${fmtPrice(smsMin)}` : "$0"}
+                    </span>
+                    <span className="range-dual-val">
+                      上限 {smsMax > 0 ? `$${fmtPrice(smsMax)}` : "∞ 不限"}
+                    </span>
+                  </div>
+                </div>
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                   {SMS_PRICE_TIERS.map((t) => (
                     <button
                       key={t}
                       className={`btn btn-sm ${config.sms_price === t ? "btn-primary" : ""}`}
+                      title="上限快捷预设"
                       onClick={() => setConfig({ ...config, sms_price: t })}
                     >
                       ${t}
                     </button>
                   ))}
                   <button
-                    className={`btn btn-sm ${Number(config.sms_price) <= 0 ? "btn-primary" : ""}`}
+                    className={`btn btn-sm ${smsMax <= 0 ? "btn-primary" : ""}`}
+                    title="上限不限: 区间内全部价位的号都可取"
                     onClick={() => setConfig({ ...config, sms_price: "0" })}
                   >
                     不限
                   </button>
                 </div>
                 <span className="setting-hint">
-                  {smsMinPrice != null
-                    ? `阶梯取号: 最低 $${smsMinPrice.toFixed(4)} · ≤上限 ${smsInBudget} 家可用 (${smsQuoteCc})`
-                    : `阶梯取号: 报价查询中 (${smsQuoteCc})…`}
+                  {smsPrices.length > 0
+                    ? `按平台实际价格升序取号: 区间内 ${smsInRangeCount} 家可用 · ${smsInRange
+                        .slice(0, 5)
+                        .map((p) => `$${p.toFixed(4)}`)
+                        .join(" / ")}${smsInRange.length > 5 ? " …" : ""} (${smsQuoteCc})`
+                    : `报价查询中 (${smsQuoteCc})…`}
                 </span>
               </div>
             </div>
@@ -1180,6 +1237,25 @@ export function PayPalView() {
                     })
                   }
                 />
+              </div>
+            </div>
+            <div className="setting-row">
+              <span className="setting-label">取号重试轮数</span>
+              <div className="setting-control">
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={config.sms_max_attempts ?? 12}
+                  title="区间内供应商全失败后冷却 2s 重试整轮, 达到轮数才放弃"
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      sms_max_attempts: Math.max(1, parseInt(e.target.value) || 12),
+                    })
+                  }
+                />
+                <span className="setting-hint">每轮 = 区间内全部价位升序试一遍; 失败冷却 2s 再下一轮</span>
               </div>
             </div>
             <div className="setting-row">

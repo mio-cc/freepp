@@ -2495,3 +2495,81 @@ table.table {
   font-size: 12px;
   padding: 14px 6px;
 }
+
+/* ============ 接码价格区间双滑块 ============ */
+.range-dual-wrap {
+  position: relative;
+  padding-top: 16px;
+}
+.range-dual {
+  position: relative;
+  height: 22px;
+}
+.range-dual-track {
+  position: absolute;
+  top: 9px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--border-faint);
+  border-radius: 2px;
+}
+.range-dual-fill {
+  position: absolute;
+  top: 9px;
+  height: 4px;
+  background: var(--accent-strong);
+  border-radius: 2px;
+  opacity: 0.45;
+  pointer-events: none;
+}
+.range-dual-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none;
+}
+.range-dual-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  border: 2px solid var(--accent-strong);
+  cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.15);
+}
+.range-dual-input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  border: 2px solid var(--accent-strong);
+  cursor: pointer;
+}
+.range-dual-input.range-dual-min {
+  z-index: 3;
+}
+.range-dual-input.range-dual-max {
+  z-index: 2;
+}
+.range-dual-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+.range-dual-val {
+  font-family: var(--font-mono, monospace);
+}
