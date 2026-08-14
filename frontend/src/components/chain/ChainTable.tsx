@@ -76,9 +76,6 @@ function ChainTableInner({ chainList, onClick }: Props) {
             <tr>
               <th style={{ width: 80 }}>链路</th>
               <th>Email / Sub</th>
-              <th style={{ textAlign: "center", minWidth: 46 }} title="S0 会话类型探测 (用 checkout 段 IP)">
-                探
-              </th>
               {STAGE_ORDER.map((s) => (
                 <th key={s} style={{ textAlign: "center", minWidth: 58 }} title={STAGE_CN[s]}>
                   <span style={{ color: "var(--text-2)" }}>{STAGE_SHORT[s]}</span>
@@ -132,8 +129,7 @@ function ChainTableInner({ chainList, onClick }: Props) {
                       attempt {cs.attempt || 1}
                     </div>
                   </td>
-                  <td style={{ textAlign: "center" }}>
-                    {(() => {
+                  <td style={{ textAlign: "center" }}>{(() => {
                       const sd = cs.stages["probe"];
                       const det = cs.detected
                         ? cs.detected === "oaics" ? "OAICS" : cs.detected === "cs_live" ? "cs_live" : cs.detected
@@ -158,8 +154,7 @@ function ChainTableInner({ chainList, onClick }: Props) {
                           <span className="stage-try">{plabel}</span>
                         </span>
                       );
-                    })()}
-                  </td>
+                    })()}</td>
                   {STAGE_ORDER.map((s) => {
                     const isOaics = cs.linkMode === "oaics";
                     let oaicsSrc: OaicsStageName | undefined;

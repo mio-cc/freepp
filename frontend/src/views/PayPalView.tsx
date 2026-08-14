@@ -694,7 +694,7 @@ export function PayPalView() {
               onChange={(e) => setImportCountry(e.target.value)}
               title="导入记录的默认国家 (授权时仍可按配置跟随)"
             >
-              <option value="">国家: 跟随身份国配置</option>
+              <option value="">国家: 跟随提链出口国家</option>
               {ccOptions().map((cc) => {
                 const meta = countryMeta[cc];
                 const disabled = meta ? !meta.sms_supported || !meta.proxy_supported : false;
@@ -860,7 +860,7 @@ export function PayPalView() {
                     <th>当前步骤</th>
                     <th>Captcha</th>
                     <th>国家</th>
-                    <th>身份国</th>
+                    <th>表单国家</th>
                     <th>来源</th>
                     <th style={{ textAlign: "right" }}>操作</th>
                   </tr>
@@ -1051,14 +1051,14 @@ export function PayPalView() {
                 </label>
                 <span className="setting-hint">
                   {config.follow_chain_country !== false
-                    ? "授权国家 = 队列记录国家 (提链 billing_country)"
+                    ? "授权国家 = 提链 checkout 段出口 IP 国家"
                     : "使用下方手动国家"}
                 </span>
               </div>
             </div>
             {config.follow_chain_country === false && (
               <div className="setting-row">
-                <span className="setting-label">身份国</span>
+                <span className="setting-label">出口国家</span>
                 <div className="setting-control">
                   <select
                     className="select"
@@ -1110,7 +1110,7 @@ export function PayPalView() {
                     <option key={cc} value={cc}>{cc}</option>
                   ))}
                 </select>
-                <span className="setting-hint">默认跟随身份国</span>
+                <span className="setting-hint">默认跟随出口国家</span>
               </div>
             </div>
             <div className="setting-row">
@@ -1273,7 +1273,7 @@ export function PayPalView() {
                   <span className="dr-value">{detailRecord.country || "—"}</span>
                 </div>
                 <div className="detail-row">
-                  <span className="dr-label">身份国</span>
+                  <span className="dr-label">表单国家</span>
                   <span className="dr-value">{detailRecord.identity_country || detailRecord.country || "—"}</span>
                 </div>
                 <div className="detail-row">

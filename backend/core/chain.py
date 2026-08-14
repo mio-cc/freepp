@@ -1051,9 +1051,17 @@ class AsyncChain:
         self._oaics_cookie_jar: dict[str, str] = {}
         # 提链前探测分流: 探测为 oaics 时强制只走 oaics 五段, 建出非 oaics 会话直接失败, 不降级
         self._oaics_only: bool = False
-        # S0 实时探测结果 (execute 开头用 checkout 段 IP 探测; 失败为空, 回退 token.session_type)
+        # =====================================================================
+        # 【已废弃】S0 独立会话类型探测段 (2026-08-14 移除):
+        #   原流程: execute 开头用 checkout 段 IP 额外建单探测会话类型 (oaics/cs_live),
+        #   再按探测结果分流。缺点: 探测=多一次建单, 触发 429 且与链路建单重复。
+        #   现流程: 会话类型改由 S1 建单结果动态判定 (建出啥走啥):
+        #     oaics_  -> OAICS 五段; cs_live_ -> 七段主链。
+        #   以下字段仅为历史语义兜底保留, 不再有 S0 探测赋值 (保持空串):
+        #   _detected_session / _probe_billing_cc / _probe_currency
+        #   前端链路监控列表的"探"列已同步删除。
+        # =====================================================================
         self._detected_session: str = ""
-        # S0 探测建单参数 (探测出 oaics 时账单国/币种自动跟随, 保证提链建单与探测判定一致)
         self._probe_billing_cc: str = ""
         self._probe_currency: str = ""
         self._stage_geo: dict[str, dict] = {}  # 每段真实出口探测记录
@@ -1635,19 +1643,17 @@ class AsyncChain:
             # cs_live_ -> 七段主链; token.session_type 历史值仅用于"不降级"语义兜底。
 
             # S1 checkout (billing_details 用账单国+币种; 出口代理按 pick 国家)
-            # paypal 按 S0 实时探测的会话类型分流 (是啥就走啥):
+            # paypal 会话类型分流 (2026-08-14 起无 S0 独立探测段, 用 S1 建单结果 + 历史
+            # session_type 兜底; 历史 S0 探测字段已废弃, 见 __init__ 注释):
             #   oaics   -> 只用 oaics 配置 (oaics 账单国 + custom 建单), 建出非 oaics 会话直接失败, 不降级
             #   cs_live -> 直接走七段主链 (七段账单国 + hosted 建单), 不尝试 oaics
-            #   探测失败/未探测 -> 回退 token 历史 session_type; 仍无则保持原行为:
-            #                      先 custom 尝试, 建出非 oaics 再回退七段主链
+            #   未标注   -> 保持原行为: 先 custom 尝试, 建出非 oaics 再回退七段主链
             if self.branch_name == "paypal":
                 detected = self._detected_session or str(self.token.get("session_type") or "").strip().lower()
                 self._oaics_only = detected == "oaics"
                 if detected == "oaics":
-                    # oaics 链路账单国/币种自动跟随 S0 探测参数:
-                    # 探测用 TH/THB 建出 oaics_ 会话 → 提链建单也用同一组合,
-                    # 避免七段账单国 (如 DE/EUR) 建出 cs_live_ 导致 oaics 分流失效。
-                    # 后续 _execute_oaics_paypal / sentinel 指纹均读 pick_oaics, 一并生效。
+                    # 【已废弃】_probe_billing_cc/_probe_currency 来自 S0 探测段 (已移除),
+                    # 恒为空, 此分支仅保留语义兼容 (账单国跟随 pick_oaics 默认值)。
                     if self._probe_billing_cc:
                         self.pick_oaics["_billing"] = self._probe_billing_cc
                         self.pick_oaics["_currency"] = self._probe_currency or billing_currency(self._probe_billing_cc)

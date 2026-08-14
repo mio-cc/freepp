@@ -214,6 +214,29 @@ def _geo_precheck(proxy: str, country: str) -> dict[str, Any]:
     }
 
 
+def _resolve_sms_country_code(raw: str, ctx) -> tuple[str, str]:
+    """接码国家解析: 字母国家码 → SMSBower 数字国家码 + 手机国码。
+
+    sms_country 可能来自前端 (字母 ISO2, 如 "TH") 或历史配置 (数字码, 如 "34"):
+    - 数字码: 原样透传, phone_cc 跟随授权国上下文
+    - 字母码: 走 country_profile 转数字码, phone_cc 跟随该接码国 (号码前缀须与接码国一致)
+    - 空: 默认跟随授权国上下文
+    """
+    from ba_paypal.paypal.country_profile import country_context as _ctx
+    from ba_paypal.paypal.country_profile import smsbower_country_id as _sms_id
+    raw = str(raw or "").strip()
+    if not raw:
+        return ctx.sms_country_id, ctx.phone_country
+    if raw.isdigit():
+        return raw, ctx.phone_country
+    cc = raw.upper()
+    try:
+        sub_ctx = _ctx(cc)
+        return sub_ctx.sms_country_id, sub_ctx.phone_country
+    except Exception:
+        return _sms_id(cc), ctx.phone_country
+
+
 def _build_sms_provider(country: str, cfg: dict[str, Any]):
     """按国家上下文构造 SMSBower provider (接码国家 + 手机国码 + 价格上限)。"""
     from ba_paypal.paypal.country_profile import country_context as _ctx
@@ -223,8 +246,9 @@ def _build_sms_provider(country: str, cfg: dict[str, Any]):
         provider = _build(enabled=True)
         if provider is None:
             return None, "smsbower_disabled"
-        provider.country = str(cfg.get("sms_country") or "") or ctx.sms_country_id
-        provider.phone_cc = ctx.phone_country
+        provider.country, provider.phone_cc = _resolve_sms_country_code(
+            cfg.get("sms_country"), ctx
+        )
         try:
             price = float(str(cfg.get("sms_price") or "0.02"))
             if price > 0:
@@ -350,7 +374,7 @@ async def _seed_from_inventory() -> None:
             import_from_url(
                 url,
                 email=r.get("email") or "",
-                country=r.get("billing_country") or "",
+                country=r.get("exit_country") or r.get("billing_country") or "",
                 chain_id=r.get("ba") or "",
                 source="inventory",
             )

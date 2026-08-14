@@ -180,6 +180,16 @@ def paypal_captcha_bypass_mode() -> str:
     mode = _captcha_mode_raw()
     normalized = _normalize_captcha_mode(mode)
     dashed = normalized.replace("_", "-")
+    if not normalized:
+        # 默认 frontend_disable: authchallenge 用本地 synthetic close 绕过
+        # (8/11 BA-XXXXXXXXXXXXXXX1 成功路径), 不依赖环境变量显式配置。
+        if strict_browser_risk_enabled() and not _env_truthy("PAYPAL_ALLOW_SYNTHETIC_CAPTCHA"):
+            logger.warning(
+                "Default CAPTCHA mode frontend_disable is ignored while "
+                "PAYPAL_STRICT_BROWSER_RISK=1; falling back to manual_required."
+            )
+            return CAPTCHA_MANUAL_REQUIRED_MODE
+        return CAPTCHA_FRONTEND_DISABLE_MODE
     if normalized in _CAPTCHA_FRONTEND_DISABLE_MODES or dashed in _CAPTCHA_FRONTEND_DISABLE_MODES:
         if strict_browser_risk_enabled() and not _env_truthy("PAYPAL_ALLOW_SYNTHETIC_CAPTCHA"):
             logger.warning(

@@ -230,7 +230,7 @@ export const useStore = create<StoreState>((set, get) => ({
           stages[evt.stage as StageName] = { ...(prev || {}), state: "ok", country: evt.country } as StageData;
           const linkMode = (evt.link_mode as ChainState["linkMode"]) || cs.linkMode || "";
           const patch: ChainState = { ...cs, stages, linkMode };
-          // S0 探测段 ok: 记录实时探测到的会话类型 (oaics / cs_live)
+          // 【已废弃】S0 探测段事件处理 (2026-08-14 探测段移除, 后端不再发 probe 事件; 保留兼容)
           if (evt.stage === "probe" && evt.detected) patch.detected = String(evt.detected);
           set((st) => ({
             chainStates: { ...st.chainStates, [evt.chain_id]: patch },

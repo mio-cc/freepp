@@ -328,6 +328,14 @@ class TokenStore:
                 payment_channel TEXT
             )
         """)
+        # 旧库迁移: 补出口国列 (授权段跟随 checkout 出口 IP 国家, 非账单国)
+        try:
+            _cur = await db.execute("PRAGMA table_info(success_inventory)")
+            _cols = {r[1] for r in await _cur.fetchall()}
+            if "exit_country" not in _cols:
+                await db.execute("ALTER TABLE success_inventory ADD COLUMN exit_country TEXT DEFAULT ''")
+        except Exception:
+            pass
         await db.execute("""
             CREATE TABLE IF NOT EXISTS samples (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -609,11 +617,13 @@ class TokenStore:
     # 成功库存
     # ------------------------------------------------------------------
     async def add_success(self, email: str, ba: str, paypal_url: str, pm_url: str,
-                          amount_due: int, currency: str, country: str, channel: str = "paypal") -> int:
+                          amount_due: int, currency: str, country: str, channel: str = "paypal",
+                          exit_country: str = "") -> int:
         cur = await self.db.execute(
             "INSERT INTO success_inventory (ts,email,ba,paypal_approve_url,pm_authorize_url,"
-            "amount_due,currency,billing_country,payment_channel) VALUES (?,?,?,?,?,?,?,?,?)",
-            (_utc(), email, ba, paypal_url, pm_url, amount_due, currency, country, channel),
+            "amount_due,currency,billing_country,payment_channel,exit_country) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (_utc(), email, ba, paypal_url, pm_url, amount_due, currency, country, channel,
+             str(exit_country or "").upper()),
         )
         await self.db.commit()
         return cur.lastrowid or 0

@@ -4817,7 +4817,14 @@ class PayPalFlow:
             f"authchallenge_{captcha_type or 'unknown'}",
         )
         self.captcha_bypass_mode = paypal_captcha_bypass_mode()
-        if "recaptcha" in captcha_type and os.getenv("PAYPAL_RECAPTCHA_SOLVER_ENABLED", "1") != "0":
+        # frontend_disable 模式下跳过 reCAPTCHA mint: 纯 HTTP mint 的 Enterprise v2 token
+        # 必被 soft-reject, 真实 POST validatecaptcha 反而作废会话 (8/14 BA-2GM93699 失败根因)。
+        # 直接走 synthetic close (8/11 成功路径)。PAYPAL_RECAPTCHA_SOLVER_ENABLED=0 显式关闭。
+        if (
+            "recaptcha" in captcha_type
+            and self.captcha_bypass_mode != CAPTCHA_FRONTEND_DISABLE_MODE
+            and os.getenv("PAYPAL_RECAPTCHA_SOLVER_ENABLED", "1") != "0"
+        ):
             try:
                 from paypal.recaptcha_solver import solve_recaptcha_from_html
 

@@ -58,7 +58,11 @@ export type ChainStatus = "running" | "success" | "failed";
 /** 链路模式: cs = 原七段 (hosted) / oaics = 五段 (custom 纯 HTTP) */
 export type ChainLinkMode = "cs" | "oaics" | "";
 
-/** S0 实时会话类型探测段 (提链开头用 checkout 段 IP 探测, 决定 oaics/七段分流) */
+/**
+ * 【已废弃】S0 实时会话类型探测段 (2026-08-14 移除):
+ * 原为提链开头用 checkout 段 IP 额外建单探测 oaics/cs_live, 现改由 S1 建单结果
+ * 动态判定 (建出啥走啥), 前端链路监控列表"探"列已删除。类型保留仅供旧数据兼容。
+ */
 export type ProbeStageName = "probe";
 
 export interface ChainState {
@@ -71,7 +75,7 @@ export interface ChainState {
   country: string;
   /** 链路模式 (node: cs/oaics, 由后端事件标记) */
   linkMode?: ChainLinkMode;
-  /** S0 实时探测到的会话类型 (oaics / cs_live / 空=探测失败) */
+  /** 【已废弃】S0 探测到的会话类型 (探测段已移除, 该字段仅保留旧数据兼容) */
   detected?: string;
   /** 真实出口 (checkout 探测) */
   actualCountry?: string;
@@ -236,8 +240,8 @@ export interface BAAuthConfig {
   sms_provider: string;
   sms_price: string; // 语义: 单号最高预算 (USD), 授权时自动选最低价供应商
   sms_timeout: number;
-  exit_country: string; // 兼容保留 (跟随身份国)
-  identity_country?: string; // 表单国家 (默认跟随队列 record.country)
+  exit_country: string; // 兼容保留 (跟随出口国)
+  identity_country?: string; // 表单国家 (默认跟随队列 record.country=提链出口国)
   sms_country?: string; // 接码国家 (默认跟随 identity_country)
   proxy_type: string;
   captcha_strategy: string;

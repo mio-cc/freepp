@@ -1,4 +1,4 @@
-"""国家上下文 CountryContext: 授权段唯一事实源 (提链国家 → 表单/指纹/接码/卡全联动)。
+﻿"""国家上下文 CountryContext: 授权段唯一事实源 (提链国家 → 表单/指纹/接码/卡全联动)。
 
 数据表覆盖提链可用 15 国 (BA_COUNTRY_ALIGN_PLAN_20260812 §三)。
 时区偏移不存死值, 运行时用 zoneinfo 计算 (DST 漂移安全)。
@@ -33,25 +33,25 @@ _COUNTRY_MAP: dict[str, dict] = {
     "JP": dict(locale="ja_JP", language="ja-JP", timezone="Asia/Tokyo", lang="ja",
                phone="+81", smsbower_id="40", currency="JPY", proxy_supported=True, sms_supported=True),
     "TH": dict(locale="th_TH", language="th-TH", timezone="Asia/Bangkok", lang="th",
-               phone="+66", smsbower_id="34", currency="THB", proxy_supported=False, sms_supported=True),
+               phone="+66", smsbower_id="34", currency="THB", proxy_supported=True, sms_supported=True),
     "NL": dict(locale="nl_NL", language="nl-NL", timezone="Europe/Amsterdam", lang="nl",
                phone="+31", smsbower_id="15", currency="EUR", proxy_supported=True, sms_supported=True),
     "VN": dict(locale="vi_VN", language="vi-VN", timezone="Asia/Ho_Chi_Minh", lang="vi",
-               phone="+84", smsbower_id="8", currency="VND", proxy_supported=False, sms_supported=True),
+               phone="+84", smsbower_id="8", currency="VND", proxy_supported=True, sms_supported=True),
     "BH": dict(locale="ar_BH", language="en-BH", timezone="Asia/Bahrain", lang="en",
-               phone="+973", smsbower_id="39", currency="BHD", proxy_supported=False, sms_supported=True),
+               phone="+973", smsbower_id="39", currency="BHD", proxy_supported=True, sms_supported=True),
     "AO": dict(locale="pt_AO", language="pt-AO", timezone="Africa/Luanda", lang="pt",
-               phone="+244", smsbower_id="36", currency="AOA", proxy_supported=False, sms_supported=True),
+               phone="+244", smsbower_id="36", currency="AOA", proxy_supported=True, sms_supported=True),
     "AE": dict(locale="ar_AE", language="en-AE", timezone="Asia/Dubai", lang="en",
-               phone="+971", smsbower_id="21", currency="AED", proxy_supported=False, sms_supported=True),
+               phone="+971", smsbower_id="21", currency="AED", proxy_supported=True, sms_supported=True),
     "CI": dict(locale="fr_CI", language="fr-CI", timezone="Africa/Abidjan", lang="fr",
-               phone="+225", smsbower_id="32", currency="XOF", proxy_supported=False, sms_supported=True),
+               phone="+225", smsbower_id="32", currency="XOF", proxy_supported=True, sms_supported=True),
     "TR": dict(locale="tr_TR", language="tr-TR", timezone="Europe/Istanbul", lang="tr",
-               phone="+90", smsbower_id="27", currency="TRY", proxy_supported=False, sms_supported=True),
+               phone="+90", smsbower_id="27", currency="TRY", proxy_supported=True, sms_supported=True),
     "BR": dict(locale="pt_BR", language="pt-BR", timezone="America/Sao_Paulo", lang="pt",
                phone="+55", smsbower_id="73", currency="BRL", proxy_supported=True, sms_supported=True),
     "KR": dict(locale="ko_KR", language="ko-KR", timezone="Asia/Seoul", lang="ko",
-               phone="+82", smsbower_id="14", currency="KRW", proxy_supported=False, sms_supported=True),
+               phone="+82", smsbower_id="14", currency="KRW", proxy_supported=True, sms_supported=True),
 }
 
 # 接码实测价 (2026-08-12, service=ts, USD): BR 0.004 / VN 0.012 / KR 0.014 /
@@ -59,9 +59,25 @@ _COUNTRY_MAP: dict[str, dict] = {
 # TH 0.187 / AE 0.187 / CI 0.187 / TR 0.187 / JP 0.357 — 预算建议 >= 0.05 起步
 SMS_PRICE_DEFAULT = "0.05"
 
-# 711 住宅代理实际白名单 (backend/core/proxy_711.py:72) — TH/VN/BH/AO/AE/CI/TR 走 sing-box/QG
+# 711 住宅代理支持近 200 国 (region 参数任意国家均构造可用链路, 且有 sing-box/QG 兜底),
+# 不再用 10 国白名单 — 前端"无代理"置灰以 711 全集为准。
 _SUPPORTED_COUNTRIES: frozenset[str] = frozenset({
+    # 主用国家 (实测/常用)
     "US", "GB", "CA", "AU", "DE", "FR", "JP", "SG", "NL", "BR",
+    # 711 region 已支持 (近 200 国中的常用子集, 其余国家同样可用)
+    "TH", "VN", "BH", "AO", "AE", "CI", "TR", "KR", "MX", "ID", "PH",
+    "MY", "IN", "PK", "BD", "LK", "NP", "HK", "TW", "CN", "MO", "KR",
+    "AR", "CL", "CO", "PE", "UY", "PY", "EC", "VE", "BO", "CR", "PA",
+    "DO", "GT", "HN", "NI", "SV", "JM", "TT", "CU",
+    "BE", "AT", "CH", "IE", "IT", "ES", "PT", "SE", "NO", "DK", "FI",
+    "PL", "CZ", "SK", "HU", "RO", "BG", "GR", "HR", "SI", "EE", "LV",
+    "LT", "UA", "RU", "BY", "KZ", "UZ", "GE", "AM", "AZ", "MD", "RS",
+    "BA", "MK", "AL", "IS", "LU", "MT", "CY",
+    "ZA", "EG", "MA", "DZ", "TN", "NG", "GH", "KE", "TZ", "UG", "ET",
+    "SN", "CM", "CD", "ZW", "ZM", "MZ", "MW", "BW", "NA", "MU", "SC",
+    "SA", "QA", "KW", "OM", "JO", "LB", "IL", "IQ", "YE", "SY", "AF",
+    "UZ", "TJ", "KG", "MN", "KH", "LA", "MM", "BT", "MV", "BN", "TL",
+    "FJ", "PG", "NZ", "GU",
 })
 
 # 每国邮箱域名池 (域名即国家信号, 如 uol.com.br 不可用于他国)

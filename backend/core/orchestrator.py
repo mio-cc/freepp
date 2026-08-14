@@ -257,12 +257,16 @@ class AsyncChainOrchestrator:
             try:
                 branch_name = str(options.get("branch") or "paypal")
                 channel = settings.branch(branch_name).channel
+                # 授权段国家必须跟随 checkout 出口 IP 国家 (result.country),
+                # 而非账单国 (billing_country) — PayPal 表单国家/指纹/接码按出口国对齐
+                exit_cc = str(result.country or result.actual_country or "").upper()
                 await token_store.add_success(
                     email=result.email, ba=result.ba_token,
                     paypal_url=result.paypal_approve_url, pm_url=result.pm_authorize_url,
                     amount_due=result.amount_due, currency=result.currency,
-                    country=result.billing_country or result.country,
+                    country=result.billing_country or exit_cc,
                     channel=channel,
+                    exit_country=exit_cc,
                 )
                 # paypal 渠道: BA 自动进入授权队列, 并广播通知前端刷新
                 if channel == "paypal" and result.paypal_approve_url:
@@ -270,7 +274,7 @@ class AsyncChainOrchestrator:
                     imported = import_from_url(
                         result.paypal_approve_url,
                         email=result.email,
-                        country=result.billing_country or result.country,
+                        country=exit_cc or result.billing_country,
                         chain_id=chain_id,
                     )
                     if imported:
