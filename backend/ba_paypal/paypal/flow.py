@@ -5723,10 +5723,12 @@ class PayPalFlow:
     def _confirm_phone_with_sms_provider(self, token: str, signup_url: str) -> None:
         if self.sms_provider is None:
             raise RuntimeError("SMS provider is not configured")
+        # flow_id = 本次 flow 会话标识; 同 flow 内重跑 2FA 可复用已确认号, 跨 flow 不复用
+        flow_id = getattr(self, "ba_token", "") or self.state.ec_token or ""
         last_reserve_error: Exception | None = None
         for attempt in range(1, self.sms_provider.max_attempts + 1):
             try:
-                activation = self.sms_provider.reserve_number()
+                activation = self.sms_provider.reserve_number(flow_id=flow_id)
             except Exception as exc:
                 last_reserve_error = exc
                 logger.warning("SMS provider could not reserve a number (attempt {}): {}", attempt, exc)
@@ -6554,6 +6556,33 @@ class PayPalFlow:
                     "createMemberAccount/OAS_ERROR returned without access token",
                     attempt + 1,
                 )
+                continue
+
+            if self._has_signup_error_message(errors, "PHONE_CONFIRMATION_REQUIRED"):
+                if attempt >= self.max_card_attempts:
+                    raise RuntimeError(
+                        "Signup failed: PHONE_CONFIRMATION_REQUIRED persists after "
+                        f"{self.max_card_attempts} phone-confirmation rounds"
+                    )
+                logger.warning(
+                    "SignUpNewMember returned PHONE_CONFIRMATION_REQUIRED after OTP "
+                    "was confirmed; re-running phone confirmation and retrying signup "
+                    "(attempt {}/{}).",
+                    attempt,
+                    self.max_card_attempts,
+                )
+                if self.sms_provider is not None:
+                    self._confirm_phone_with_sms_provider(token, signup_url)
+                else:
+                    raise RuntimeError(
+                        "Signup failed: PHONE_CONFIRMATION_REQUIRED with no SMS "
+                        "provider to re-confirm the phone."
+                    )
+                self._send_tealeaf_form_interaction_batch(signup_url, [
+                    "phone", "cardNumber", "cardExpiry", "cardCvv",
+                    "password", "firstName", "lastName",
+                ])
+                time.sleep(1.5)
                 continue
 
             break

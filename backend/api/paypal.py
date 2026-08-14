@@ -226,9 +226,15 @@ def _build_sms_provider(country: str, cfg: dict[str, Any]):
         provider.country = str(cfg.get("sms_country") or "") or ctx.sms_country_id
         provider.phone_cc = ctx.phone_country
         try:
-            price = float(str(cfg.get("sms_price") or "0.008"))
+            price = float(str(cfg.get("sms_price") or "0.02"))
             if price > 0:
                 provider.max_price = price
+        except Exception:
+            pass
+        try:
+            price_high = float(str(cfg.get("sms_price_high") or "0.3"))
+            if price_high > 0:
+                provider.max_price_high = price_high
         except Exception:
             pass
         return provider, ""

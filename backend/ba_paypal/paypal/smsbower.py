@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import threading
 import time
@@ -42,6 +43,7 @@ class SMSBowerActivation:
     price: float
     expires_at: float
     reused: bool = False
+    flow_id: str = ""
 
 
 class SMSBowerClientProtocol(Protocol):
@@ -257,7 +259,13 @@ class SMSBowerActivationStore:
         self.path = Path(path) if path is not None else _project_root() / "cache" / "smsbower_numbers.json"
 
     def _empty(self) -> dict[str, object]:
-        return {"activations": [], "provider_failures": {}}
+        return {
+            "activations": [],
+            "provider_failures": {},
+            "provider_cooldown_until": {},
+            "blacklisted_phones": [],
+            "global_pause_until": 0.0,
+        }
 
     def load(self) -> dict[str, object]:
         try:
@@ -267,6 +275,9 @@ class SMSBowerActivationStore:
             if isinstance(data, dict):
                 data.setdefault("activations", [])
                 data.setdefault("provider_failures", {})
+                data.setdefault("provider_cooldown_until", {})
+                data.setdefault("blacklisted_phones", [])
+                data.setdefault("global_pause_until", 0.0)
                 return data
         except Exception as exc:
             logger.warning("SMSBower cache read failed: {}", exc)
@@ -278,7 +289,7 @@ class SMSBowerActivationStore:
         tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp_path.replace(self.path)
 
-    def reusable_activation(self, now: float | None = None) -> SMSBowerActivation | None:
+    def reusable_activation(self, now: float | None = None, flow_id: str = "") -> SMSBowerActivation | None:
         now = time.time() if now is None else now
         data = self.load()
         activations = data.get("activations")
@@ -286,6 +297,7 @@ class SMSBowerActivationStore:
             return None
         fresh_rows: list[dict[str, object]] = []
         selected: SMSBowerActivation | None = None
+        blacklist = self._blacklist_set(data)
         for row in activations:
             if not isinstance(row, dict):
                 continue
@@ -293,14 +305,21 @@ class SMSBowerActivationStore:
             if expires_at <= now:
                 continue
             fresh_rows.append(row)
+            phone = str(row.get("phone_number") or "")
+            # 跨 flow 默认不复用 (号是一次性资源); 同 flow 内重跑可复用, 拉黑号除外
+            if flow_id and str(row.get("flow_id") or "") != flow_id:
+                continue
+            if phone and phone in blacklist:
+                continue
             if selected is None:
                 selected = SMSBowerActivation(
                     activation_id=str(row.get("activation_id") or ""),
-                    phone_number=str(row.get("phone_number") or ""),
+                    phone_number=phone,
                     provider_id=str(row.get("provider_id") or ""),
                     price=_parse_float(row.get("price")),
                     expires_at=expires_at,
                     reused=True,
+                    flow_id=flow_id,
                 )
         if len(fresh_rows) != len(activations):
             data["activations"] = fresh_rows
@@ -308,6 +327,68 @@ class SMSBowerActivationStore:
         if selected and selected.activation_id and selected.phone_number:
             return selected
         return None
+
+    def _blacklist_set(self, data: dict[str, object] | None = None) -> set[str]:
+        if data is None:
+            data = self.load()
+        blacklist = data.get("blacklisted_phones")
+        if not isinstance(blacklist, list):
+            return set()
+        return {str(item) for item in blacklist}
+
+    def blacklist_phone(self, phone_number: str) -> None:
+        phone = str(phone_number or "")
+        if not phone:
+            return
+        data = self.load()
+        blacklist = data.get("blacklisted_phones")
+        if not isinstance(blacklist, list):
+            blacklist = []
+        normalized = str(phone)
+        if normalized not in blacklist:
+            blacklist.append(normalized)
+            data["blacklisted_phones"] = blacklist[:500]
+            self.save(data)
+            logger.info("SMSBower phone blacklisted: {} ({} remaining)", normalized, len(blacklist))
+
+    def is_phone_blacklisted(self, phone_number: str) -> bool:
+        return str(phone_number or "") in self._blacklist_set()
+
+    def provider_cooldown_seconds(self, provider_id: str, now: float | None = None) -> float:
+        now = time.time() if now is None else now
+        data = self.load()
+        cooldowns = data.get("provider_cooldown_until")
+        if not isinstance(cooldowns, dict):
+            return 0.0
+        until = _parse_float(cooldowns.get(str(provider_id)))
+        return max(0.0, until - now)
+
+    def cooldown_provider(self, provider_id: str, seconds: float) -> None:
+        data = self.load()
+        cooldowns = data.get("provider_cooldown_until")
+        if not isinstance(cooldowns, dict):
+            cooldowns = {}
+        key = str(provider_id)
+        cooldowns[key] = max(
+            _parse_float(cooldowns.get(key)),
+            time.time() + max(1.0, float(seconds)),
+        )
+        data["provider_cooldown_until"] = cooldowns
+        self.save(data)
+
+    def global_pause_seconds(self, now: float | None = None) -> float:
+        now = time.time() if now is None else now
+        data = self.load()
+        until = _parse_float(data.get("global_pause_until"))
+        return max(0.0, until - now)
+
+    def pause_globally(self, seconds: float) -> None:
+        data = self.load()
+        data["global_pause_until"] = max(
+            _parse_float(data.get("global_pause_until")),
+            time.time() + max(1.0, float(seconds)),
+        )
+        self.save(data)
 
     def remember_success(
         self,
@@ -317,6 +398,7 @@ class SMSBowerActivationStore:
         provider_id: str,
         price: float,
         expires_at: float,
+        flow_id: str = "",
     ) -> None:
         data = self.load()
         activations = data.get("activations")
@@ -330,6 +412,7 @@ class SMSBowerActivationStore:
                 "provider_id": provider_id,
                 "price": price,
                 "expires_at": expires_at,
+                "flow_id": str(flow_id or ""),
             },
         )
         data["activations"] = rows[:20]
@@ -355,7 +438,15 @@ class SMSBowerActivationStore:
             return 0
         return _parse_int(failures.get(str(provider_id)))
 
-    def record_failure(self, provider_id: str) -> None:
+    def record_failure(self, provider_id: str, reason: str = "") -> None:
+        """失败分级记账 (2026-08-14): 冷却制替代"3 次永久跳过"。
+
+        - NO_NUMBERS  : 平台无号, 短冷却 60s (库存波动)
+        - NO_BALANCE  : 余额不足, 全局停购 300s (重试无意义)
+        - 限流/OTP拒  : 冷却 300s (号段被 PayPal 标记)
+        - 其他        : 冷却 120s
+        """
+        reason = str(reason or "").upper()
         data = self.load()
         failures = data.get("provider_failures")
         if not isinstance(failures, dict):
@@ -364,6 +455,14 @@ class SMSBowerActivationStore:
         key = str(provider_id)
         failures[key] = _parse_int(failures.get(key)) + 1
         self.save(data)
+        if "NO_BALANCE" in reason:
+            self.pause_globally(300)
+        elif "NO_NUMBERS" in reason or "NO_ACTIVATION" in reason:
+            self.cooldown_provider(provider_id, 60)
+        elif "SMS_LIMIT" in reason or "LIMIT" in reason or "REJECTED" in reason or "CONFIRMATION" in reason:
+            self.cooldown_provider(provider_id, 300)
+        else:
+            self.cooldown_provider(provider_id, 120)
 
 
 class SMSBowerOtpProvider:
@@ -376,6 +475,7 @@ class SMSBowerOtpProvider:
         country: str = SMSBOWER_DEFAULT_COUNTRY,
         phone_cc: str = "+55",
         max_price: float | None = None,
+        max_price_high: float | None = None,
         wait_seconds: float = SMSBOWER_DEFAULT_WAIT_SECONDS,
         poll_interval_seconds: float = SMSBOWER_DEFAULT_POLL_INTERVAL_SECONDS,
         max_channel_failures: int = SMSBOWER_DEFAULT_MAX_CHANNEL_FAILURES,
@@ -388,56 +488,79 @@ class SMSBowerOtpProvider:
         self.country = country
         self.phone_cc = str(phone_cc or "+55")
         self.max_price = float(max_price) if max_price else None
+        self.max_price_high = float(max_price_high) if max_price_high else None
         self.wait_seconds = max(1.0, float(wait_seconds)) if wait_seconds >= 1 else float(wait_seconds)
         self.poll_interval_seconds = max(0.01, float(poll_interval_seconds))
         self.max_channel_failures = max(1, int(max_channel_failures))
         self.activation_ttl_seconds = max(60, int(activation_ttl_seconds))
         self.max_attempts = max(1, int(max_attempts))
 
-    def reserve_number(self) -> SMSBowerActivation:
-        reusable = self.store.reusable_activation()
+    def reserve_number(self, flow_id: str = "") -> SMSBowerActivation:
+        # 同 flow 内可复用已确认号 (重跑 2FA); 跨 flow 不复用 (号是一次性资源)
+        reusable = self.store.reusable_activation(flow_id=flow_id)
         if reusable is not None:
             logger.info("Reusing active SMSBower phone from provider {}", reusable.provider_id)
             self._set_status(reusable.activation_id, 3)
             return reusable
-        return self._purchase_new_number()
+        return self._purchase_new_number(flow_id)
 
-    def _purchase_new_number(self) -> SMSBowerActivation:
+    def _purchase_new_number(self, flow_id: str = "") -> SMSBowerActivation:
+        pause = self.store.global_pause_seconds()
+        if pause > 0:
+            raise SMSBowerApiError(
+                f"SMSBower purchase paused {pause:.0f}s (balance/global); "
+                "refill the account or wait for cooldown"
+            )
         prices = self._get_provider_prices()
         if not prices:
             raise SMSBowerApiError(f"SMSBower has no PayPal {self.phone_cc} providers with available numbers")
+
+        budgets = [self.max_price] if self.max_price is not None else [None]
+        if self.max_price_high is not None and (self.max_price is None or self.max_price_high > self.max_price):
+            budgets.append(self.max_price_high)
+
         last_error: Exception | None = None
-        for price in prices:
-            if self.store.provider_failure_count(price.provider_id) >= self.max_channel_failures:
-                logger.info("Skipping SMSBower provider {} after repeated failures", price.provider_id)
+        for budget in budgets:
+            candidates = [
+                p for p in prices
+                if p.count > 0
+                and (budget is None or p.price <= budget)
+                and self.store.provider_cooldown_seconds(p.provider_id) <= 0
+            ]
+            if not candidates:
                 continue
-            if self.max_price is not None and price.price > self.max_price:
-                logger.info(
-                    "Skipping SMSBower provider {} price={} over budget={}",
-                    price.provider_id, price.price, self.max_price,
-                )
-                continue
-            try:
-                data = self._get_number_v2(price)
-                activation = SMSBowerActivation(
-                    activation_id=str(data["activationId"]),
-                    phone_number=normalize_phone(data["phoneNumber"], self.phone_cc),
-                    provider_id=str(data.get("activationOperator") or data.get("provider_id") or price.provider_id),
-                    price=_parse_float(data.get("activationCost"), price.price),
-                    expires_at=time.time() + self.activation_ttl_seconds,
-                    reused=False,
-                )
-                logger.info(
-                    "Reserved SMSBower PayPal {} number provider={} price={}",
-                    self.phone_cc,
-                    activation.provider_id,
-                    activation.price,
-                )
-                return activation
-            except Exception as exc:
-                last_error = exc
-                self.store.record_failure(price.provider_id)
-                logger.warning("SMSBower provider {} failed: {}", price.provider_id, exc)
+            # 价格升序, 前 min(5) 家软随机 (避免连续打同一低价 provider 造成段限流)
+            ordered = sorted(candidates, key=lambda item: (item.price, item.provider_id))
+            pool = ordered if len(ordered) <= 5 else random.sample(ordered, 5)
+            for pick in sorted(pool, key=lambda item: item.price):
+                try:
+                    data = self._get_number_v2(pick)
+                    activation = SMSBowerActivation(
+                        activation_id=str(data["activationId"]),
+                        phone_number=normalize_phone(data["phoneNumber"], self.phone_cc),
+                        provider_id=str(data.get("activationOperator") or data.get("provider_id") or pick.provider_id),
+                        price=_parse_float(data.get("activationCost"), pick.price),
+                        expires_at=time.time() + self.activation_ttl_seconds,
+                        reused=False,
+                        flow_id=flow_id,
+                    )
+                    logger.info(
+                        "Reserved SMSBower PayPal {} number provider={} price={} (budget={})",
+                        self.phone_cc,
+                        activation.provider_id,
+                        activation.price,
+                        budget if budget is not None else "unlimited",
+                    )
+                    return activation
+                except Exception as exc:
+                    last_error = exc
+                    self.store.record_failure(pick.provider_id, str(exc))
+                    logger.warning(
+                        "SMSBower provider {} failed (budget={}): {}",
+                        pick.provider_id,
+                        budget if budget is not None else "unlimited",
+                        exc,
+                    )
         if last_error is not None:
             raise SMSBowerApiError(
                 f"SMSBower could not reserve a PayPal {self.phone_cc} number: {last_error}"
@@ -481,7 +604,10 @@ class SMSBowerOtpProvider:
         except Exception as exc:
             logger.warning("SMSBower activation cancel failed: {}", exc)
         self.store.abandon(activation.activation_id)
-        self.store.record_failure(activation.provider_id)
+        # 号被 PayPal 拒绝/超时 -> 永久拉黑 + provider 分级冷却
+        if activation.phone_number:
+            self.store.blacklist_phone(activation.phone_number)
+        self.store.record_failure(activation.provider_id, reason)
 
     def register_confirmation_result(self, activation: SMSBowerActivation, confirmed: bool) -> None:
         if confirmed:
@@ -491,6 +617,7 @@ class SMSBowerOtpProvider:
                 provider_id=activation.provider_id,
                 price=activation.price,
                 expires_at=activation.expires_at,
+                flow_id=activation.flow_id,
             )
             return
         self.abandon(activation, "paypal_rejected_code")
@@ -556,6 +683,7 @@ def build_smsbower_provider(
     country: str = SMSBOWER_DEFAULT_COUNTRY,
     phone_cc: str = "+55",
     max_price: float | None = None,
+    max_price_high: float | None = None,
     service: str = SMSBOWER_DEFAULT_SERVICE,
 ) -> SMSBowerOtpProvider | None:
     if not smsbower_enabled(enabled):
@@ -571,6 +699,7 @@ def build_smsbower_provider(
         country=country,
         phone_cc=phone_cc,
         max_price=max_price,
+        max_price_high=max_price_high,
         service=service,
         wait_seconds=_env_float("SMSBOWER_WAIT_SECONDS", SMSBOWER_DEFAULT_WAIT_SECONDS, 1.0, 300.0),
         poll_interval_seconds=_env_float(
