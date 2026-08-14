@@ -2054,35 +2054,35 @@ class LocalHeadlessSession:
         semaphore.acquire()
         self._semaphore_acquired = True
         try:
-            sync_playwright = _load_sync_playwright()
-            self._manager = sync_playwright()
-            self._playwright = cast(Any, self._manager).__enter__()
-            if self.roxy_browser:
-                self._browser = _connect_roxy_browser(cast(_Playwright, self._playwright), self.roxy_browser)
-            else:
-                self._browser = _launch_browser(cast(_Playwright, self._playwright), self.proxy_url)
-            options = _context_options(
-                browser_profile=self.browser_profile,
-                screen=self.screen,
-                viewport=self.viewport,
-            )
-            if self.roxy_browser:
-                contexts = list(getattr(self._browser, "contexts", []) or [])
-                self._context = contexts[0] if contexts else self._browser.new_context(**options)
-            else:
-                self._context = self._browser.new_context(**options)
-            profile = _merged_context_dict(BROWSER_PROFILE, self.browser_profile)
-            try:
-                self._context.set_extra_http_headers(_headless_extra_http_headers(profile))
-            except Exception as exc:
-                logger.debug("Local headless extra headers install failed: {}", exc)
-            self._install_stealth_context()
-            cached_cookies = [] if self.roxy_browser else _load_headless_cached_cookies(self.proxy_url, profile)
-            sanitized = _merge_cookie_lists(_sanitize_cookies(self.cookies), cached_cookies)
-            if sanitized:
-                self._context.add_cookies(sanitized)
-                self.cookies = sanitized
-            self._install_network_policy()
+            from paypal.pw_shared import shared_playwright
+            with shared_playwright() as pw:
+                self._playwright = pw
+                if self.roxy_browser:
+                    self._browser = _connect_roxy_browser(pw, self.roxy_browser)
+                else:
+                    self._browser = _launch_browser(pw, self.proxy_url)
+                options = _context_options(
+                    browser_profile=self.browser_profile,
+                    screen=self.screen,
+                    viewport=self.viewport,
+                )
+                if self.roxy_browser:
+                    contexts = list(getattr(self._browser, "contexts", []) or [])
+                    self._context = contexts[0] if contexts else self._browser.new_context(**options)
+                else:
+                    self._context = self._browser.new_context(**options)
+                profile = _merged_context_dict(BROWSER_PROFILE, self.browser_profile)
+                try:
+                    self._context.set_extra_http_headers(_headless_extra_http_headers(profile))
+                except Exception as exc:
+                    logger.debug("Local headless extra headers install failed: {}", exc)
+                self._install_stealth_context()
+                cached_cookies = [] if self.roxy_browser else _load_headless_cached_cookies(self.proxy_url, profile)
+                sanitized = _merge_cookie_lists(_sanitize_cookies(self.cookies), cached_cookies)
+                if sanitized:
+                    self._context.add_cookies(sanitized)
+                    self.cookies = sanitized
+                self._install_network_policy()
         except Exception:
             self.close()
             raise
@@ -3845,9 +3845,9 @@ def capture_runtime_fingerprint_with_local_headless(
     screen: JsonObject | None = None,
     viewport: JsonObject | None = None,
 ) -> JsonObject:
-    sync_playwright = _load_sync_playwright()
+    from paypal.pw_shared import shared_playwright
     wait_ms = max(1000, int(wait_seconds * 1000))
-    with sync_playwright() as playwright:
+    with shared_playwright() as playwright:
         browser = _launch_browser(playwright, proxy_url)
         try:
             context = browser.new_context(

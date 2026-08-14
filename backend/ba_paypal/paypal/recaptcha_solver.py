@@ -227,7 +227,8 @@ def solve_recaptcha_bridge(
     html_content = _build_bridge_html(site_key, action)
     pw_proxy = _pw_proxy(proxy)
     try:
-        with sync_playwright() as playwright:
+        from paypal.pw_shared import shared_playwright
+        with shared_playwright() as playwright:
             launch_kwargs = _pw_launch_kwargs(pw_proxy and proxy or "")
             browser = playwright.chromium.launch(**launch_kwargs)
             try:
@@ -284,7 +285,8 @@ def solve_recaptcha_on_page(
 
     pw_proxy = _pw_proxy(proxy)
     try:
-        with sync_playwright() as playwright:
+        from paypal.pw_shared import shared_playwright
+        with shared_playwright() as playwright:
             launch_kwargs: dict[str, Any] = {
                 "headless": headless,
                 "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],

@@ -280,12 +280,12 @@ def mint_semi_hybrid(
     }
 
     # 1. 浏览器: 一次完成 V 获取 + checksiteconfig + 算 n
-    from playwright.sync_api import sync_playwright
+    from paypal.pw_shared import shared_playwright
     import re as _re
     n = ""
     req = ""
     real_v = asset_v or ""
-    with sync_playwright() as pw:
+    with shared_playwright() as pw:
         launch_kwargs = {"headless": headless,
                          "executable_path": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
                          "args": ["--disable-blink-features=AutomationControlled"]}

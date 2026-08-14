@@ -156,6 +156,8 @@ class BAConfigUpdate(BaseModel):
     sms_provider: str | None = None
     sms_api_key: str | None = None
     sms_price: str | None = None
+    sms_price_min: str | None = None
+    sms_max_attempts: int | None = None
     sms_timeout: int | None = None
     exit_country: str | None = None
     identity_country: str | None = None

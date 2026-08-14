@@ -1721,7 +1721,9 @@ async () => {
   };
 }
 """
-    with sync_playwright() as p:
+    from paypal.pw_shared import shared_playwright
+
+    with shared_playwright() as p:
         browser = p.chromium.connect_over_cdp(endpoint, timeout=timeout_ms)
         context = browser.contexts[0] if browser.contexts else browser.new_context()
         page = context.pages[0] if context.pages else context.new_page()
