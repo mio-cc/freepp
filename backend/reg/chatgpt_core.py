@@ -43,21 +43,7 @@ from . import sentinel_sdk
 from . import provider_stats
 # 711 住宅代理：curl_cffi 直连会 CONNECT aborted，需经本机 relay→Clash→711
 from core import proxy_711  # noqa: E402
-# docker-mailserver 自建邮箱接入
-try:
-    from email_dms import setup_dms_email as _setup_dms_email
-except Exception:
-    _setup_dms_email = None
-# iCloud Hide My Email（Go 小程序建别名 + IMAP 收 OTP）
-try:
-    from email_icloud import setup_icloud_email as _setup_icloud_email
-except Exception:
-    _setup_icloud_email = None
-# 本机 outlookEmailPlus 邮箱池（HTTP claim + verification-code）
-try:
-    from email_outlook_pool import setup_outlook_pool_email as _setup_outlook_pool_email
-except Exception:
-    _setup_outlook_pool_email = None
+# 邮箱渠道: 内置 mailtm; 其余由调用方 (reg/engine) 自定义渠道注册表注入
 import atexit
 atexit.register(lambda: sentinel_sdk.close_browser())
 
@@ -620,149 +606,6 @@ def _bind_oai_did(session, did: str) -> None:
     except Exception:
         pass
 
-# ========== DuckDuckGo Email Protection + 双 IMAP 转发收件配置 ==========
-# 实测 2026-07-12 起（配额已打满后的运行态）：
-# - DDG 别名已到配额上限/sticky：POST 反复回显 wrath-paging-alibi（仅应急/历史记录）。
-# - 冻结 addresses_generated=104，sticky 回显 dock-upscale-arson（仅应急/历史记录）。
-# - 环境变量 DDG_TOKEN / DDG_TOKENS（逗号分隔）可覆盖默认池。
-DDG_TOKEN = (os.environ.get("REG_DDG_TOKEN") or "").strip()  # env 注入，不落仓库
-DDG_TOKEN_POOL_DEFAULT = [t for t in (os.environ.get("REG_DDG_TOKENS") or "").split(",") if t.strip()]  # env 注入
-DDG_ALIAS_URL = "https://quack.duckduckgo.com/api/email/addresses"
-# 模块级 duck 别名去重集合：DDG 对快速连续 POST 会复吐同一 private 三词别名，
-# 不去重会导致同一已注册邮箱被反复注册 → OTP 回 external_url → create_account invalid_auth_step。
-# 集合跨整个进程所有 attempt 生效（批量循环每次 run() 都调 gen_duck_alias）。
-# 另：进程重启后会从 accounts/tokens 种子填充，避免跨进程复用已注册别名。
-_DUCK_ALIAS_USED = set()
-_DUCK_ALIAS_SEEDED = False
-# token → 连续撞车次数；超过阈值后跳过该 token
-_DUCK_TOKEN_STUCK: Dict[str, int] = {}
-_DUCK_TOKEN_STUCK_THRESHOLD = 2
-
-
-def _ddg_token_pool() -> list:
-    """解析可用 DDG Bearer 池（env 优先，再默认池，保证 DDG_TOKEN 在列）。"""
-    env_multi = (os.environ.get("DDG_TOKENS") or "").strip()
-    env_one = (os.environ.get("DDG_TOKEN") or "").strip()
-    pool: list = []
-    if env_multi:
-        pool.extend(t.strip() for t in env_multi.split(",") if t.strip())
-    if env_one:
-        pool.insert(0, env_one)
-    pool.append(DDG_TOKEN)
-    pool.extend(DDG_TOKEN_POOL_DEFAULT)
-    # 去重保序
-    seen = set()
-    out = []
-    for t in pool:
-        if t and t not in seen:
-            seen.add(t)
-            out.append(t)
-    return out
-
-
-def _burn_duck_alias(email: str) -> None:
-    """把已占用/已注册 duck 别名持久化，跨进程去重。"""
-    if not email or "@duck.com" not in email.lower():
-        return
-    em = email.strip().lower()
-    _DUCK_ALIAS_USED.add(em)
-    try:
-        burn = OUT_DIR / "tokens" / "duck_alias_burned.txt"
-        burn.parent.mkdir(parents=True, exist_ok=True)
-        with open(burn, "a", encoding="utf-8") as f:
-            f.write(em + "\n")
-    except Exception:
-        pass
-
-
-def _mark_token_exhausted(token: str) -> None:
-    """把别名配额耗尽的 DDG token 持久化，重启后 seed 仍记得跳过（避免重新空转）。"""
-    if not token:
-        return
-    _DDG_TOKEN_EXHAUSTED.add(token)
-    try:
-        p = OUT_DIR / "tokens" / "ddg_token_exhausted.txt"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        # 去重写：先读后追，避免重复行
-        cur = set()
-        if p.is_file():
-            cur = {x.strip() for x in p.read_text(encoding="utf-8", errors="ignore").splitlines() if x.strip()}
-        if token not in cur:
-            with open(p, "a", encoding="utf-8") as f:
-                f.write(token + "\n")
-    except Exception:
-        pass
-
-
-def _seed_duck_alias_used() -> None:
-    """从本地已落盘账号/token 种子填充 _DUCK_ALIAS_USED（只跑一次）。"""
-    global _DUCK_ALIAS_SEEDED
-    if _DUCK_ALIAS_SEEDED:
-        return
-    _DUCK_ALIAS_SEEDED = True
-    # 启动即载入已耗尽的 DDG token（跨进程记忆，避免重启空转）
-    try:
-        _ep = OUT_DIR / "tokens" / "ddg_token_exhausted.txt"
-        if _ep.is_file():
-            for _t in _ep.read_text(encoding="utf-8", errors="ignore").splitlines():
-                _t = _t.strip()
-                if _t:
-                    _DDG_TOKEN_EXHAUSTED.add(_t)
-    except Exception:
-        pass
-    email_re = re.compile(r"[A-Za-z0-9._%+\-]+@duck\.com", re.I)
-    paths = [
-        OUT_DIR / "accounts.jsonl",
-        OUT_DIR / "accounts.txt",
-        OUT_DIR / "tokens" / "accounts.txt",
-        OUT_DIR / "tokens" / "duck_alias_burned.txt",
-    ]
-    for p in paths:
-        try:
-            if not p.is_file():
-                continue
-            text = p.read_text(encoding="utf-8", errors="ignore")
-            for m in email_re.findall(text):
-                _DUCK_ALIAS_USED.add(m.lower())
-        except Exception:
-            pass
-    # token_xxx_duck.com_TS.json 文件名里也有邮箱
-    try:
-        tdir = OUT_DIR / "tokens"
-        if tdir.is_dir():
-            for f in tdir.glob("token_*_duck.com_*.json"):
-                name = f.name
-                # token_<local>_duck.com_<ts>.json
-                if name.startswith("token_") and "_duck.com_" in name:
-                    local = name[len("token_"):].rsplit("_duck.com_", 1)[0]
-                    if local:
-                        _DUCK_ALIAS_USED.add(f"{local}@duck.com".lower())
-    except Exception:
-        pass
-
-
-# 双 IMAP：DDG 不同账户的别名转发到不同收件箱，轮询全部账户找 OTP
-IMAP_ACCOUNTS = json.loads(os.environ.get("REG_IMAP_ACCOUNTS", "[]") or "[]")  # env JSON 注入, 不落仓库
-# 兼容字段: [{"host","port","user","auth","label"}, ...]
-# 向后兼容：保留 IMAP_HOST/USER/AUTH 指向第一个（防止别处引用）
-IMAP_HOST = IMAP_ACCOUNTS[0]["host"] if IMAP_ACCOUNTS else ""
-IMAP_PORT = IMAP_ACCOUNTS[0]["port"] if IMAP_ACCOUNTS else 993
-IMAP_USER = IMAP_ACCOUNTS[0]["user"] if IMAP_ACCOUNTS else ""   # 163 邮箱地址
-IMAP_AUTH = IMAP_ACCOUNTS[0]["auth"] if IMAP_ACCOUNTS else ""   # 163 邮箱 IMAP 授权码
-IMAP_TIMEOUT_MIN = 8
-# DDG/163 IMAP OTP 两阶段等待：每阶段秒数；超时后 resend 再等一阶段，仍无则放弃。
-# 总墙钟约 10+resend+10 ≈ 25–30s，避免旧逻辑卡满 8 分钟。
-# password / 通用两阶段（保持现状）
-IMAP_OTP_PHASE_SEC = int(os.environ.get("IMAP_OTP_PHASE_SEC", "10"))
-# passwordless web：authorize 已发 OTP1，DDG→163 常 30-60s+，phase1 需覆盖
-IMAP_OTP_WEB_PHASE_SEC = int(os.environ.get("IMAP_OTP_WEB_PHASE_SEC", "100"))
-# resend 后 phase2
-IMAP_OTP_WEB_PHASE2_SEC = int(os.environ.get("IMAP_OTP_WEB_PHASE2_SEC", "60"))
-# iCloud HME 转发即时（通常十几秒），按"30秒没码即异常"给一倍余量快速失败
-IMAP_OTP_ICLOUD_PHASE_SEC = int(os.environ.get("IMAP_OTP_ICLOUD_PHASE_SEC", "60"))
-# 邮件 Date 与本地时钟偏差容忍（秒）
-IMAP_OTP_DATE_SKEW_SEC = int(os.environ.get("IMAP_OTP_DATE_SKEW_SEC", "30"))
-
 # ========== 1. Mail.tm 临时邮箱处理模块 ==========
 
 def rstr(n=10): 
@@ -919,211 +762,6 @@ def setup_mail_tm(proxies=None, cancel_check=None):
         return getotp(mail_token, proxies=proxies, cancel_check=cancel_check)
         
     return email, openai_password, fetch_code
-
-
-# ========== 1b. DuckDuckGo @duck.com 别名 + 163 IMAP 收件 ==========
-
-def _ddg_alias_headers(token: str, attempt: int = 0) -> Dict[str, str]:
-    """构造 POST /addresses 头。轮换 UA/Origin 变体（实测无法救 stuck token，但可降低其它限流）。"""
-    ua_pool = [
-        UA,
-        ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-         "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"),
-        ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-         "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
-        ("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"),
-    ]
-    origins = [
-        ("https://duckduckgo.com", "https://duckduckgo.com/"),
-        ("https://duckduckgo.com", "https://duckduckgo.com/email/settings/autofill"),
-    ]
-    origin, referer = origins[attempt % len(origins)]
-    return {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "User-Agent": ua_pool[attempt % len(ua_pool)],
-        "origin": origin,
-        "referer": referer,
-    }
-
-
-# DDG 账户别名配额上限（实测约 200）。超过后 POST /addresses 永远回显同一别名，
-# 永远落在 _DUCK_ALIAS_USED 里 → 反复 stuck → 最终只能 +tag。
-# 所以：一个 token 连续「吐出已用别名」达到此阈值，就标记该 token 永久耗尽。
-# 注意：必须 <= _DUCK_TOKEN_STUCK_THRESHOLD；否则 stuck 先把 token 移出 active，
-# stuck 永远到不了 exhausted 阈值，永久集合恒空、每次 gen 又 clear transient 空转。
-_DDG_TOKEN_EXHAUSTED: set = set()
-_DDG_TOKEN_EXHAUSTED_THRESHOLD = 2  # 与 _DUCK_TOKEN_STUCK_THRESHOLD 对齐，保证能真正标记
-
-
-def _post_ddg_address(token: str, ddg_proxies, attempt: int = 0):
-    """POST 一次 /api/email/addresses，返回 (status, address_or_None, raw_text)。
-
-    容错：DDG 偶发 422/5xx 时按异常重试（不计入 stuck，因为响应里没给新别名），
-    顶层调用方对 None 地址会换 token 重试。
-    """
-    with Session(proxies=ddg_proxies) as s:
-        r = s.post(
-            DDG_ALIAS_URL,
-            headers=_ddg_alias_headers(token, attempt),
-            json={},
-            timeout=20,
-        )
-    try:
-        addr = r.json().get("address")
-    except Exception:
-        addr = None
-    return r.status_code, addr, (r.text or "")[:200]
-
-
-def gen_duck_alias(proxies=None):
-    """用 DDG Token 生成一个 @duck.com 别名，返回完整邮箱地址（保证进程内每号唯一）。
-
-    根因（2026-07 实测）：
-      - 错误/卡住的 token 会 201 但永远回显同一 private 别名（如 bunch-oven-coat）；
-        dashboard 也 401。换 UA/Origin/Referer/delay 均无效。
-      - 健康 token 每次 POST 返回不同三词别名（无需 OTP）。
-    策略：
-      1) 多 token 池轮换（DDG_TOKENS / DDG_TOKEN / 默认池）
-      2) 某 token 连续复吐已用别名 → 标记 stuck，换下一个
-      3) 模块级 _DUCK_ALIAS_USED + accounts/tokens 种子去重
-      4) 全部 stuck/exhausted 时最后手段：base+random_tag@duck.com（DDG 不保证 +tag 转发，仅应急）
-    """
-    MAX_TRIES = 12
-    _seed_duck_alias_used()
-    # 忽略调用方 711/代理池；走本机 Clash 或 HTTP_PROXY。
-    ddg_proxies = _local_or_env_proxies()
-    if ddg_proxies:
-        _px = (ddg_proxies.get("https") or ddg_proxies.get("http") or "")
-        print(f"  [*] DDG 别名经本地/环境代理: {_px.split('@')[-1] if '@' in _px else _px}")
-    else:
-        print("  [*] DDG 别名真直连（无 HTTP_PROXY / Clash）")
-
-    tokens = _ddg_token_pool()
-    if not tokens:
-        print("  [!] 无可用 DDG_TOKEN")
-        return None
-
-    # 跳过已知 stuck / 已耗尽别名的 token（已耗尽的 token 本进程永久不用）
-    active = [t for t in tokens if (t not in _DDG_TOKEN_EXHAUSTED
-                                    and _DUCK_TOKEN_STUCK.get(t, 0) < _DUCK_TOKEN_STUCK_THRESHOLD)]
-    if not active:
-        # 区分「全部被标记耗尽」与「全部仅 transient stuck」：
-        # 若还有非耗尽 token（仅被 transient 阈值拦住），清空 transient 计数再试一轮；
-        # 若仅剩已耗尽 token，不再空转，直接走 +tag 应急。
-        # 重建 active 始终排除 _DDG_TOKEN_EXHAUSTED（clear 只抹 transient stuck）。
-        non_exhausted = [t for t in tokens if t not in _DDG_TOKEN_EXHAUSTED]
-        if non_exhausted:
-            print("  [*] 全部 DDG token 曾 transient stuck，重置 transient 计数再试")
-            _DUCK_TOKEN_STUCK.clear()
-            active = list(non_exhausted)
-        else:
-            print("  [!] 全部 DDG token 别名配额已耗尽（反复吐已用别名）→ 直接 +tag 应急")
-            active = []
-
-    email = None
-    last_base_addr = None
-    tok_idx = 0
-    # active 为空（全 exhausted）时禁止进 for，否则 tok_idx % len(active) 除零
-    if active:
-        for _i in range(MAX_TRIES):
-            if not active:
-                break
-            token = active[tok_idx % len(active)]
-            tok_label = f"{token[:8]}…{token[-4:]}"
-            try:
-                status, addr, raw = _post_ddg_address(token, ddg_proxies, attempt=_i)
-            except Exception as e:
-                print(f"  [!] 生成 DDG 别名请求异常 (token={tok_label}): {e}")
-                # 换下一个 token
-                tok_idx += 1
-                if not active:
-                    break
-                if tok_idx >= len(active) * 2:
-                    return None
-                time.sleep(1.0)
-                continue
-            if status not in (200, 201):
-                print(f"  [!] 生成 DDG 别名失败: {status} {raw} (token={tok_label})")
-                _DUCK_TOKEN_STUCK[token] = _DUCK_TOKEN_STUCK.get(token, 0) + 1
-                tok_idx += 1
-                # 若全挂则退出（必须同时排除已耗尽 token，否则会留空集后仍强转）
-                active = [t for t in tokens if (t not in _DDG_TOKEN_EXHAUSTED
-                                                and _DUCK_TOKEN_STUCK.get(t, 0) < _DUCK_TOKEN_STUCK_THRESHOLD)]
-                if not active:
-                    break
-                continue
-            if not addr:
-                print(f"  [!] DDG 响应无 address 字段: {raw}")
-                tok_idx += 1
-                continue
-            last_base_addr = addr
-            email = f"{addr}@duck.com"
-            email_key = email.lower()
-            if email_key in _DUCK_ALIAS_USED:
-                stuck_n = _DUCK_TOKEN_STUCK.get(token, 0) + 1
-                _DUCK_TOKEN_STUCK[token] = stuck_n
-                print(
-                    f"  [*] duck 别名去重命中 {email}（token={tok_label} "
-                    f"stuck={stuck_n}/{_DUCK_TOKEN_STUCK_THRESHOLD}），"
-                    f"换 token/退避（{_i+1}/{MAX_TRIES}）"
-                )
-                # 同一 token 连续吐已用别名达到耗尽阈值 → 永久标记该 token 配额耗尽，
-                # 不再空转清计数（避免反复 burn 同一别名又被迫 +tag）。
-                if stuck_n >= _DDG_TOKEN_EXHAUSTED_THRESHOLD:
-                    _DDG_TOKEN_EXHAUSTED.add(token)
-                    _mark_token_exhausted(token)
-                    print(f"  [!] token {tok_label} 别名配额耗尽（反复吐已用别名），本进程永久停用")
-                    active = [t for t in tokens if (t not in _DDG_TOKEN_EXHAUSTED
-                                                    and _DUCK_TOKEN_STUCK.get(t, 0) < _DUCK_TOKEN_STUCK_THRESHOLD)]
-                    if not active:
-                        break
-                    tok_idx = 0
-                    time.sleep(0.8 + _i * 0.4)
-                    continue
-                if stuck_n >= _DUCK_TOKEN_STUCK_THRESHOLD:
-                    # 立刻换 token（transient）
-                    active = [t for t in tokens if (t not in _DDG_TOKEN_EXHAUSTED
-                                                    and _DUCK_TOKEN_STUCK.get(t, 0) < _DUCK_TOKEN_STUCK_THRESHOLD)]
-                    if not active:
-                        break
-                    tok_idx = 0
-                else:
-                    tok_idx += 1
-                time.sleep(0.8 + _i * 0.4)
-                continue
-            # 成功：健康 token 清零 stuck 计数
-            _DUCK_TOKEN_STUCK[token] = 0
-            _DUCK_ALIAS_USED.add(email_key)
-            print(f"  [+] DDG 新别名: {email} (token={tok_label})")
-            return email
-
-    # 全部 token 无法给出未使用「裸」别名 → +tag 应急。
-    # OpenAI 把 base+tag 当新邮箱；DDG 侧 OTP 常按 base 转发（IMAP 已按 base 匹配）。
-    # 优先选用「仍会回显」的 base（last_base_addr），否则从已 seed 的 sticky 中挑一个。
-    bases = []
-    if last_base_addr:
-        bases.append(last_base_addr.split("+", 1)[0])
-    # 常见 sticky 回显（163 转发账户上的真实 private 别名）
-    for known in ("dupe-cloning-swarm", "bunch-oven-coat"):
-        if known not in bases:
-            bases.append(known)
-    for base_local in bases:
-        for _ in range(5):
-            tag = secrets.token_hex(4)
-            email = f"{base_local}+{tag}@duck.com"
-            email_key = email.lower()
-            if email_key in _DUCK_ALIAS_USED:
-                continue
-            _DUCK_ALIAS_USED.add(email_key)
-            print(
-                f"  [!] sticky token 无新裸别名，启用 +tag 应急: {email} "
-                f"（OTP 按 base={base_local} 匹配；长期请刷新 DDG access_token）"
-            )
-            return email
-    print(f"  [!] duck 别名去重重试 {MAX_TRIES} 次仍失败")
-    return None
 
 
 def _msg_date_ts(msg):
@@ -1384,54 +1022,6 @@ def imap_get_otp(email_alias=None, cancel_check=None, timeout_min=None, timeout_
                 return None
             time.sleep(1)
     return None
-
-
-def setup_duck_email(proxies=None, cancel_check=None):
-    """DDG 别名 + 163 收件。返回 (email, openai_password, fetch_code)。
-
-    注意：第二项是 **OpenAI 账户密码**（user/register 需要 ≥12 位），
-    不是 DDG/163 邮箱密码。旧实现返回空串会导致 password 流程
-    empty_string 400。
-
-    fetch_code(timeout_sec=None, seen_ids=None, not_before=None)：
-      - 默认 timeout_sec=IMAP_OTP_PHASE_SEC（两阶段由 run() 编排）
-      - seen_ids 跨阶段复用，避免 resend 后把第一阶段已见邮件再扫一遍
-      - not_before 透传 imap_get_otp，时间窗挡旧 OTP
-    """
-    email = gen_duck_alias(proxies)
-    if not email:
-        print("[Error] 获取 DDG @duck.com 别名失败")
-        return None, None, None
-    openai_password = _gen_password()
-    def fetch_code(timeout_sec=None, seen_ids=None, not_before=None):
-        sec = IMAP_OTP_PHASE_SEC if timeout_sec is None else int(timeout_sec)
-        print(f"  [*] 正在等待 163 邮箱(经 DDG 转发)验证码 (最多约{sec}秒)...")
-        return imap_get_otp(
-            email_alias=email, cancel_check=cancel_check,
-            timeout_sec=sec, seen_ids=seen_ids, not_before=not_before,
-        )
-    return email, openai_password, fetch_code
-
-
-def setup_163_email(proxies=None, cancel_check=None):
-    """直接用 163 原邮箱注册 OpenAI，OTP 直接收进该 163 收件箱（不经 DDG 转发）。
-
-    OpenAI 现在拒掉 DDG @duck.com 别名（统计 0/10 已停用），
-    改用 IMAP_USER 的真实 163 邮箱作为注册邮箱。验证码由 OpenAI 直接
-    发到该 163 收件箱，imap_get_otp(email_alias=None) 按发件人
-    (openai/noreply) 或主题过滤，配合首次轮询基线跳过历史邮件。
-    """
-    email = IMAP_USER  # 163 原邮箱
-    openai_password = _gen_password()
-    def fetch_code(timeout_sec=None, seen_ids=None, not_before=None):
-        sec = IMAP_OTP_PHASE_SEC if timeout_sec is None else int(timeout_sec)
-        print(f"  [*] 正在等待 163 原邮箱 {email} 验证码 (最多约{sec}秒)...")
-        return imap_get_otp(
-            email_alias=None, cancel_check=cancel_check,
-            timeout_sec=sec, seen_ids=seen_ids, not_before=not_before,
-        )
-    return email, openai_password, fetch_code
-
 
 
 # ========== 2. OpenAI OAuth2 授权与环境生成模块 ==========
@@ -2032,58 +1622,6 @@ def _wait_otp_imap_two_phase(code_fetcher, s, did, ua, impersonate, cancel_check
     return None
 
 
-def make_outlook_pool_code_fetcher(email: str):
-    """构造登录用 OTP 取码器：从本地 outlook 邮箱池按存量邮箱读 6 位验证码。
-
-    返回 fetch 函数（兼容 _wait_otp_imap_two_phase 的调用约定）或 None：
-      fetcher(timeout_sec=None, seen_ids=None, not_before=None) -> code|None
-    仅适用于 email_outlook_pool 管理的 outlook/office 系邮箱。
-    """
-    email = (email or "").strip()
-    if not email or ("@outlook" not in email and "@office" not in email
-                     and "@live" not in email and "@hotmail" not in email
-                     and "@msn" not in email):
-        return None
-    try:
-        import email_outlook_pool as _pool
-        api_key = _pool._load_api_key()
-        if not api_key:
-            print("[login] outlook 邮箱池 API key 缺失，无法取 OTP")
-            return None
-    except Exception as e:
-        print(f"[login] 加载邮箱池模块失败: {repr(e)[:120]}")
-        return None
-
-    def _fetcher(timeout_sec=None, seen_ids=None, not_before=None):
-        deadline = time.time() + max(5, int(timeout_sec or 60))
-        seen = set(seen_ids or [])
-        last_code = {"v": ""}
-        while time.time() < deadline:
-            since_minutes = 13
-            if not_before is not None:
-                try:
-                    age_min = max(1, int((time.time() - float(not_before)) / 60) + 2)
-                    since_minutes = min(since_minutes, age_min)
-                except Exception:
-                    pass
-            try:
-                code, hint = _pool._fetch_verification_code(
-                    api_key, email, since_minutes
-                )
-            except Exception as e:
-                print(f"[login] 池取码异常: {repr(e)[:100]}")
-                code, hint = None, "err"
-            if code and code not in seen and code != last_code["v"]:
-                print(f"[login] 池取到 OTP（{hint}）")
-                last_code["v"] = code
-                return code
-            if time.time() < deadline:
-                time.sleep(6)
-        return None
-
-    return _fetcher
-
-
 def login_with_password(proxy, email, password, cancel_check=None, code_fetcher=None) -> Optional[tuple]:
     """用邮箱+密码走 next-auth 登录，给存量账号补抓 session_token。
 
@@ -2305,7 +1843,25 @@ def login_with_password(proxy, email, password, cancel_check=None, code_fetcher=
         return None
 
 
-def run(proxy: Optional[str], email: str = "163", cancel_check=None, imap_label=None) -> Optional[tuple]:
+# 自定义邮箱渠道注册表: 调用方注册 setup_email(proxies, cancel_check) -> (email, openai_password, fetch_code)
+# fetch_code(timeout_sec=None, seen_ids=None, not_before=None) -> code|None
+CUSTOM_EMAIL_CHANNELS: Dict[str, Any] = {}
+
+
+def register_email_channel(name: str, setup_fn) -> None:
+    """注册自定义邮箱渠道。name 即 run(email=name) 与面板渠道下拉的取值。"""
+    name = str(name or "").strip().lower()
+    if not name or not callable(setup_fn):
+        raise ValueError("register_email_channel: 需要 name + setup_fn")
+    CUSTOM_EMAIL_CHANNELS[name] = setup_fn
+
+
+def list_email_channels() -> list:
+    """内置 + 自定义渠道名列表（面板下拉用）。"""
+    return ["mailtm"] + sorted(CUSTOM_EMAIL_CHANNELS.keys())
+
+
+def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_label=None) -> Optional[tuple]:
     # 返回 5-tuple: (token_json, email, password, access_token, session_token)
     #   - web 流: token_json=None, access_token+session_token 来自 chatgpt.com/api/auth/session
     #   - Codex 流: token_json=JSON串(含 refresh_token), access_token/session_token 均为 ""
@@ -2335,63 +1891,21 @@ def run(proxy: Optional[str], email: str = "163", cancel_check=None, imap_label=
     proxies = {"http": proxy, "https": proxy} if proxy else None
     _email = None
     _ok = False
-    code_fetcher = None  # finally 中 outlookpool release 兜底用
+    code_fetcher = None  # 自定义渠道取码器
 
     # 保存邮箱模式：后面 mail_data 会覆盖 email 变量为具体地址
     email_mode = email
     print(f"[*] 初始化请求，准备使用 {email} 邮箱注册...")
-    if email == "duck":
-        mail_data = setup_duck_email(proxies, cancel_check=cancel_check)
-    elif email == "mailtm":
+    if email == "mailtm":
         mail_data = setup_mail_tm(proxies=None, cancel_check=cancel_check)  # mail.tm 直连，不走 711 代理
-    elif email == "dms":
-        if _setup_dms_email is None:
-            print("[Error] email_dms 模块未导入，请检查 email_dms.py")
-            return None
-        mail_data = _setup_dms_email(proxies=None, cancel_check=cancel_check)
-    elif email == "icloud":
-        if _setup_icloud_email is None:
-            print("[Error] email_icloud 模块未导入，请检查 email_icloud.py / bin/icloud_create.exe")
-            return None
-        # CLI 常不传 imap_label（None），勿覆盖 setup 默认 imap_default
-        mail_data = _setup_icloud_email(
-            proxies, cancel_check=cancel_check,
-            imap_label=imap_label or "imap_default",
-        )
-    elif email == "outlookpool":
-        if _setup_outlook_pool_email is None:
-            print("[Error] email_outlook_pool 模块未导入，请检查 email_outlook_pool.py")
-            return None
-        mail_data = _setup_outlook_pool_email(proxies=None, cancel_check=cancel_check)
+    elif email in CUSTOM_EMAIL_CHANNELS:
+        # 调用方 (reg/engine) 注册的自定义邮箱渠道
+        mail_data = CUSTOM_EMAIL_CHANNELS[email](proxies, cancel_check=cancel_check)
     else:
-        mail_data = setup_163_email(proxies, cancel_check=cancel_check)
+        print(f"[Error] 未知邮箱渠道: {email!r}（内置 mailtm；自定义渠道见 reg/engine.register_email_channel）")
+        return None
     if not mail_data or not mail_data[0]:
         print(f"[Error] 获取 {email} 邮箱失败")
-        # outlookpool：按 last_pool_status 分类提示（不改 setup 返回值结构）
-        if email == "outlookpool":
-            try:
-                from email_outlook_pool import last_pool_status as _ops
-                _cat = str((_ops or {}).get("category") or "")
-                _msg = str((_ops or {}).get("message") or "")[:160]
-                if _cat == "POOL_DOWN":
-                    print(
-                        "[Error] 邮箱池服务不可达（端口 8800），请先启动 outlookEmailPlus："
-                        "在 outlookEmailPlus-main 目录执行 ops.bat start。"
-                        "本 attempt 中止（勿再空撞 100 次）。"
-                    )
-                elif _cat == "POOL_EMPTY":
-                    print("[Error] 邮箱池暂无空闲 Outlook，请补充库存或稍后重试。")
-                elif _cat == "AUTH_INVALID":
-                    print(
-                        "[Error] 邮箱池鉴权失败，请检查 OUTLOOK_POOL_API_KEY "
-                        "或项目根 .outlook_pool_api_key。"
-                    )
-                elif _cat == "TRANSIENT":
-                    print(f"[Error] 邮箱池瞬时故障（可重试）: {_msg}")
-                elif _cat:
-                    print(f"[Error] outlookpool category={_cat} {_msg}")
-            except Exception:
-                pass
         return None
 
     email, password, code_fetcher = mail_data
@@ -2592,13 +2106,6 @@ def run(proxy: Optional[str], email: str = "163", cancel_check=None, imap_label=
             return None
         if not code:
             print("[Error] 验证码等待超时或提取失败")
-            # duck 别名 OTP 失败：记入已用，外层换下一别名重试
-            if email_mode == "duck" and email and "@duck.com" in str(email).lower():
-                try:
-                    _DUCK_ALIAS_USED.add(str(email).lower())
-                    _burn_duck_alias(str(email))
-                except Exception:
-                    pass
             return None
         print(f"[*] 成功提取验证码: {code}")
         _human_delay(0.4, 1.5, "before email-otp/validate")
@@ -2633,7 +2140,7 @@ def run(proxy: Optional[str], email: str = "163", cancel_check=None, imap_label=
             # 而是 page=external_url + continue_url=chatgpt.com 登录回调。
             # 此时若盲信 cont 去 GET，会直接登录旧账号污染 cookie，
             # 随后 create_account 必 400 invalid_auth_step。
-            # 识别此状态 → 放弃本次，让外层批量循环换别名重试（gen_duck_alias 已去重）。
+            # 识别此状态 → 放弃本次，让外层批量循环换别名重试（自定义渠道已去重）。
             if page_type == "external_url" or "chatgpt.com/api/auth/callback" in cont:
                 # 已注册邮箱 OTP 校验返回登录回调 = 账号已存在。
                 # 不放弃，直接走 next-auth callback 补抓 accessToken/sessionToken
@@ -2652,33 +2159,17 @@ def run(proxy: Optional[str], email: str = "163", cancel_check=None, imap_label=
                 print(f"[!] 邮箱已注册（OTP validate 返回 external_url 登录回调）→ "
                       f"放弃本次，换别名/换号重试")
                 print(f"[!] page={page_type or '?'} continue={cont[:100]}")
-                # 记入去重集 + 落盘，避免下次进程仍吐出同一 sticky 别名
-                try:
-                    if email and "@duck.com" in str(email).lower():
-                        _DUCK_ALIAS_USED.add(str(email).lower())
-                        _burn_duck_alias(str(email))
-                except Exception:
-                    pass
-                # outlookpool：调用池 API 冻结该 account，避免反复 claim 同一已注册号
-                if email_mode == "outlookpool" and code_fetcher is not None:
+                # 自定义渠道：标记已注册（若有 mark_already_registered 钩子）
+                if code_fetcher is not None:
                     try:
                         _mark = getattr(code_fetcher, "mark_already_registered", None)
                         if callable(_mark):
                             _mark("already_registered_openai")
-                        else:
-                            _complete = getattr(code_fetcher, "claim_complete", None)
-                            if callable(_complete):
-                                _complete("provider_blocked", "already_registered_openai")
-                    except Exception as _pool_e:
-                        print(f"[outlookpool] mark already_registered failed: {repr(_pool_e)[:120]}")
-                # 供 finally 分桶统计
-                try:
-                    if code_fetcher is not None:
                         _lfr = getattr(code_fetcher, "last_fail_reason", None)
                         if isinstance(_lfr, dict):
                             _lfr["reason"] = "already_registered"
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
                 return None
             if cont:
                 about_url = cont
@@ -2780,12 +2271,6 @@ def run(proxy: Optional[str], email: str = "163", cancel_check=None, imap_label=
                 elif _code == "user_already_exists":
                     print("[Hint] user_already_exists = 该邮箱已注册过（DDG 别名重复），"
                           "burn 别名后外层换号重试")
-                    try:
-                        if email and "@duck.com" in str(email).lower():
-                            _DUCK_ALIAS_USED.add(str(email).lower())
-                            _burn_duck_alias(str(email))
-                    except Exception:
-                        pass
             except Exception:
                 print(f"[Error] 账户信息填写失败: {create_resp.status_code} | "
                       f"body={create_resp.text[:600]}")
@@ -2859,14 +2344,6 @@ def run(proxy: Optional[str], email: str = "163", cancel_check=None, imap_label=
         return None
     finally:
         _set_cancel_check(None)
-        # outlookpool：若未成功拿到 OTP，归还 claim，避免池被占满（OTP 成功则保留租约）
-        if email_mode == "outlookpool" and not _ok and code_fetcher is not None:
-            try:
-                _rel = getattr(code_fetcher, "release_if_unused", None)
-                if callable(_rel):
-                    _rel("reg_abandoned")
-            except Exception:
-                pass
         if _email:
             try:
                 _reason = None
@@ -2897,7 +2374,7 @@ def main():
              "http://USER:PASS@global.rotgb.711proxy.com:10000 "
              "（711 会自动改写为 Clash 链式中继）",
     )
-    parser.add_argument("--email", choices=["163", "duck", "mailtm", "dms", "icloud", "outlookpool"], default="mailtm", help="注册邮箱来源（默认 mailtm，dms=自建docker-mailserver，icloud=Hide My Email，outlookpool=本机邮箱池）")
+    parser.add_argument("--email", choices=["mailtm", *list_email_channels()], default="mailtm", help="注册邮箱来源（默认 mailtm，dms=自建docker-mailserver，icloud=Hide My Email，outlookpool=本机邮箱池）")
     parser.add_argument("--once", action="store_true", help="只运行一次")
     parser.add_argument("--count", type=int, default=0, help="总注册次数（0=无限，配合 --once 等价于1）")
     args = parser.parse_args()
@@ -2908,7 +2385,6 @@ def main():
     print("========================================")
     
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    _seed_duck_alias_used()
 
     while True:
         count += 1
@@ -2947,27 +2423,9 @@ def main():
             with open(acc_file, "a", encoding="utf-8") as f:
                 f.write(f"{email}----{password}\n")
             print(f"[OK] 账号已追加至: {acc_file}")
-            # 成功落盘后同步进去重集合（含非 duck 也无害）
-            try:
-                if email:
-                    _DUCK_ALIAS_USED.add(str(email).lower())
-            except Exception:
-                pass
             
         else:
             print("[-] 本次注册流程断开。")
-            # outlookpool + 池宕机：CLI 批量快停，避免 100 次 connection refused
-            if args.email == "outlookpool":
-                try:
-                    from email_outlook_pool import last_pool_status as _ops
-                    if str((_ops or {}).get("category") or "") == "POOL_DOWN":
-                        print(
-                            "[*] 邮箱池不可达（POOL_DOWN），停止批量循环。"
-                            "请先 ops.bat start 启动 8800 后再跑注册。"
-                        )
-                        break
-                except Exception:
-                    pass
 
         if args.once:
             break

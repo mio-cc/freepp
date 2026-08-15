@@ -163,13 +163,31 @@ PAYPAL_SMSBOWER_API_KEY=你的key
 sentinel create_account → access/session token。成功账号自动写入 Token 库
 (`source=register`)，可直接用于提链。
 
-| 变量 | 说明 |
-|---|---|
-| `REG_IMAP_ACCOUNTS` | 163 IMAP 渠道凭据 JSON：`[{"host":"imap.163.com","port":993,"user":"...","auth":"...","label":"..."}]` |
-| `REG_DDG_TOKEN` / `REG_DDG_TOKENS` | (可选) DDG 别名渠道 token，默认空 |
+**内置邮箱渠道**：`mailtm` (零依赖在线 API，默认)。代理留空时自动启用
+711 住宅中继。
 
-邮箱渠道：`mailtm` (零依赖在线 API，默认) / `163` (IMAP)。代理留空时自动
-启用 711 住宅中继。
+**接入自定义邮箱渠道**：注册引擎提供扩展点，任意邮箱来源（IMAP / outlook
+邮箱池 / 自建邮箱 / 临时邮箱 API）都可接入。在 `backend/app.py` 启动时调用：
+
+```python
+from reg import engine as reg_engine
+
+def setup_my_mailbox(proxies, cancel_check):
+    # 1) 取一个可用注册邮箱
+    email = claim_mailbox()                 # 你的实现
+    openai_password = "Aa1!xxxx"            # ≥12 位随机密码
+    # 2) 返回取码器：轮询收件箱直到拿到 OpenAI OTP
+    def fetch_code(timeout_sec=None, seen_ids=None, not_before=None):
+        return wait_otp(email, timeout_sec)  # 你的实现
+    return email, openai_password, fetch_code
+
+reg_engine.register_email_channel("my_mailbox", setup_my_mailbox)
+```
+
+注册后渠道名 `my_mailbox` 自动出现在面板渠道下拉。`fetch_code` 约定与
+`chatgpt_core.py` 内建渠道一致（`timeout_sec` / `seen_ids` / `not_before`
+参数可选实现）。注册协议本身（OAuth/OTP/sentinel/create_account）与邮箱
+来源完全解耦。
 
 ## 五、链路概览
 

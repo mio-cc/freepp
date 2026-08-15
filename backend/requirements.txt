@@ -13,5 +13,5 @@ loguru>=0.7.0
 # pako>=1.0.0          # hCaptcha PoW 解包 (Node 侧已有, 仅纯 Python 路径需要)
 # playwright>=1.40.0   # reCAPTCHA 本地浏览器解 (默认 HTTP, 仅备用)
 
-# 可选: GPT 账号注册 (reg/) 已内置, 无需额外依赖; 163 IMAP 渠道凭据经
-# REG_IMAP_ACCOUNTS 环境变量注入 (JSON: [{"host","port","user","auth","label"},...])
+# 可选: GPT 账号注册 (reg/) 已内置, 无需额外依赖; 自定义邮箱渠道经
+# reg.engine.register_email_channel 注册 (见 README 四·五)

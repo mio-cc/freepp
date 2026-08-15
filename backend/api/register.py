@@ -34,8 +34,8 @@ async def register_start(body: dict | None = None):
     body = body or {}
     count = min(max(int(body.get("count", 1)), 1), 200)
     email_mode = str(body.get("email_mode") or "mailtm").strip()
-    if email_mode not in reg_engine.EMAIL_MODES:
-        return {"ok": False, "error": f"未知邮箱渠道: {email_mode}（可用: {', '.join(reg_engine.EMAIL_MODES)}）"}
+    if email_mode not in reg_engine.email_channels():
+        return {"ok": False, "error": f"未知邮箱渠道: {email_mode}（可用: {', '.join(reg_engine.email_channels())}）"}
     concurrency = int(body.get("concurrency") or 1)
     raw_cd = body.get("cooldown")
     cooldown = float(raw_cd) if raw_cd is not None else 30.0
@@ -65,7 +65,7 @@ async def register_stop():
 @router.get("/status")
 async def register_status():
     st = reg_engine.STATE.status()
-    return {"ok": True, **st}
+    return {"ok": True, **st, "channels": list(reg_engine.email_channels())}
 
 
 @router.get("/accounts")

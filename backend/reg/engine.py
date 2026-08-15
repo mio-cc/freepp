@@ -6,7 +6,8 @@
   - 无 gevent：uvicorn 纯 asyncio；注册为重度阻塞线程任务（curl_cffi 不走事件循环），
     由调用方 asyncio.to_thread 执行 stream_registration()
   - stdout 线程本地转发：仅注册线程 print 转发为 log 事件，不污染 uvicorn 日志
-  - 邮箱渠道：pool → mailtm（默认）/ 163（IMAP，REG_IMAP_ACCOUNTS JSON 注入）
+  - 邮箱渠道：内置 mailtm；自定义渠道经 register_email_channel 注册
+    （setup_fn(proxies, cancel_check) -> (email, openai_password, fetch_code)）
   - 落库：reg_accounts 表 + 成功账号同步写本项目 tokens 表（source=register）
 
 单例 STATE 持有运行态；POST /api/register/start 抢占槽位后
@@ -31,8 +32,23 @@ ALIVE_STATUSES = (
     "logout", "disabled", "revoked", "unknown",
 )
 
-# 邮箱渠道白名单：mailtm(零依赖) / 163(IMAP, 需 REG_IMAP_ACCOUNTS)
-EMAIL_MODES = ("mailtm", "163")
+# 邮箱渠道：内置 mailtm（零依赖在线 API）；其余由用户注册自定义渠道
+# （见 register_email_channel，可把任意邮箱接入：IMAP/outlook 池/自建邮箱等）
+# 注意：不能在模块顶层求值 list_email_channels（chatgpt_core 可能尚未完成初始化），
+# 用函数惰性获取，供 api 层与 register_one 校验使用。
+
+
+def email_channels() -> tuple:
+    return tuple(chatgpt.list_email_channels())
+
+
+def register_email_channel(name: str, setup_fn) -> None:
+    """注册自定义邮箱渠道，注册后立即出现在面板渠道下拉与校验白名单。
+
+    setup_fn(proxies, cancel_check) -> (email, openai_password, fetch_code)
+    fetch_code(timeout_sec=None, seen_ids=None, not_before=None) -> code|None
+    """
+    chatgpt.register_email_channel(name, setup_fn)
 
 
 def _now_iso() -> str:
@@ -237,7 +253,7 @@ def register_one(email_mode: str, proxy: str | None, cancel: threading.Event,
         on_event(ev)
 
     mapped = email_mode
-    if mapped not in EMAIL_MODES:
+    if mapped not in email_channels():
         on_event({"type": "log", "stage": "engine",
                   "message": f"未知邮箱渠道: {email_mode}"})
         return {
@@ -306,7 +322,7 @@ def register_one(email_mode: str, proxy: str | None, cancel: threading.Event,
         "refresh_token": str(tj.get("refresh_token") or "").strip() or None,
         "alive_status": "active",
         "plan_type": plan_type,
-        "source_email": email if email_mode == "mailtm" else None,
+        "source_email": email if email_mode in email_channels() else None,
         "error_code": None,
         "error_detail": None,
     }

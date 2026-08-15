@@ -3,10 +3,9 @@ import { useStore } from "../store/useStore";
 import { api } from "../api/client";
 import type { RegEvent, RegAccount, RegStatus } from "../types";
 
-const EMAIL_MODES = [
+const EMAIL_MODES: { value: string; label: string; hint: string }[] = [
   { value: "mailtm", label: "Mail.tm 临时邮箱", hint: "零依赖在线 API，直连取号" },
-  { value: "163", label: "163/126 IMAP", hint: "凭据经 REG_IMAP_ACCOUNTS 注入" },
-] as const;
+];
 
 const TYPE_CN: Record<string, string> = {
   start: "开始",
@@ -69,6 +68,7 @@ export function RegisterView() {
   const pushLog = useStore((s) => s.pushLog);
 
   const [status, setStatus] = useState<RegStatus | null>(null);
+  const [channels, setChannels] = useState<string[]>(["mailtm"]);
   const [count, setCount] = useState(1);
   const [emailMode, setEmailMode] = useState<string>("mailtm");
   const [cooldown, setCooldown] = useState(30);
@@ -89,9 +89,10 @@ export function RegisterView() {
 
   const loadStatus = useCallback(async () => {
     try {
-      const r = await api<RegStatus>("/api/register/status");
+      const r = await api<RegStatus & { channels?: string[] }>("/api/register/status");
       if (r?.ok) {
         setStatus(r);
+        if (Array.isArray(r.channels) && r.channels.length) setChannels(r.channels);
         if (r.last_seq) setSince((prev) => Math.max(prev, r.last_seq));
       }
     } catch { /* ignore */ }
@@ -271,11 +272,11 @@ export function RegisterView() {
           <label className="field">
             <span className="field-label">邮箱渠道</span>
             <select className="select" value={emailMode} onChange={(e) => setEmailMode(e.target.value)}>
-              {EMAIL_MODES.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
+              {channels.map((c) => (
+                <option key={c} value={c}>{EMAIL_MODES.find((m) => m.value === c)?.label || c}</option>
               ))}
             </select>
-            <span className="field-hint">{EMAIL_MODES.find((m) => m.value === emailMode)?.hint}</span>
+            <span className="field-hint">{EMAIL_MODES.find((m) => m.value === emailMode)?.hint || "自定义渠道"}</span>
           </label>
           <label className="field">
             <span className="field-label">号间冷却 (秒)</span>
