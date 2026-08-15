@@ -933,12 +933,16 @@ def confirm_oaics_paypal_intent(
             d = r.json() if r.text else {}
             err = d.get("error") if isinstance(d, dict) else {}
             code = str(err.get("code") or "") if isinstance(err, dict) else ""
+            # 2026-08-15: 附带完整 error JSON (param/decline_code/message) 便于定位
+            # setup_intent_invalid_parameter 等 400 的具体错配参数
+            import json as _json
+            _dbg = _json.dumps(err, ensure_ascii=False) if err else (r.text or "")[:400]
             if _is_payment_method_types_mismatch(r):
                 raise PayPalFundingUnavailable(
                     intent_id, [], "intent confirm 返回 payment_method_types_mismatch")
             _raise_for_current_paypal_risk_decline(d, "")
             suffix = f" ({code})" if code else ""
-            raise RuntimeError(f"OAICS Intent confirm 失败 HTTP {r.status_code}{suffix}")
+            raise RuntimeError(f"OAICS Intent confirm 失败 HTTP {r.status_code}{suffix}: {_dbg}")
         d = r.json() if r.text else {}
         _raise_for_current_paypal_risk_decline(d, "")
         return d if isinstance(d, dict) else {"raw": (r.text or "")[:400]}
