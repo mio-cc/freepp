@@ -6,3 +6,9 @@ aiosqlite>=0.20.0
 pydantic>=2.0
 pyyaml>=6.0
 structlog>=24.0
+httpx[http2]>=0.27.0
+loguru>=0.7.0
+
+# 可选: ba_paypal 备用验证路径 (不影响主链路)
+# pako>=1.0.0          # hCaptcha PoW 解包 (Node 侧已有, 仅纯 Python 路径需要)
+# playwright>=1.40.0   # reCAPTCHA 本地浏览器解 (默认 HTTP, 仅备用)
