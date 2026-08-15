@@ -1,7 +1,11 @@
+# dependencies
 node_modules/
 __pycache__/
 *.pyc
 *.pyo
+
+# dev archive (tests / diag scripts / capture artifacts - not shipped)
+_archive_dev/
 
 # runtime capture artifacts (regenerable)
 _atomic_gc_resp.bin
@@ -17,6 +21,33 @@ _jsdom_*.txt
 _node_n.txt
 _t_jsdom_smoke.js
 
-# local config
+# local config & secrets
 backend/config.yaml
+backend/ba_config.json
+backend/ba_queue.json
+backend/ba_paypal/.env
 .env
+*.env
+
+# databases (contain real tokens / card data - never commit)
+backend/tokens.db
+backend/tokens.db-wal
+backend/tokens.db-shm
+backend/tokens.db.bak_*
+backend/cards.db
+backend/tokens.cookies.db
+db_backup_*/
+*.db.bak_*
+
+# logs & runtime state
+backend/uvicorn.log
+backend/uvicorn_err.log
+*.log
+backend/ba_paypal/var/
+backend/ba_paypal/cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

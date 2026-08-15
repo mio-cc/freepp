@@ -1,0 +1,967 @@
+server:
+  host: 0.0.0.0
+  port: 8770
+  max_concurrent_chains: 10
+  thread_pool_size: 20
+  chain_mode: live
+  mock_success_rate: 0.6
+  mock_stage_min: 0.4
+  mock_stage_max: 1.6
+proxy:
+  qg_super_pool:
+    auth_key: YOUR_QG_AUTH_KEY
+    auth_pwd: YOUR_QG_AUTH_PWD
+    host: overseas.tunnel.qg.net
+    port: 16629
+  qg_resi_pool:
+    auth_key: YOUR_QG_AUTH_KEY
+    auth_pwd: YOUR_QG_AUTH_PWD
+    host: overseas.tunnel.qg.net
+    port: 14408
+  default_pool: qg_resi_pool
+  health_check_interval: 30
+  max_concurrent_per_node: 3
+  sess_time: 600
+  proxy_711:
+    enabled: true
+geo:
+  enabled: true
+  timeout: 10
+  sources:
+  - ip-api
+  - ipwhois
+  - ipinfo
+chain:
+  require_zero: true
+  auto_billing: true
+  token_min_interval_ms: 500
+  fail_cooldown_sec: 60
+  branches:
+    paypal:
+      label: PayPal 提炼
+      channel: paypal
+      token_source: stripe
+      require_zero: true
+      channel_check: true
+      channel_probe: false
+      dual_init: false
+      init0_ccs:
+      - US
+      init1_ccs:
+      - BR
+      - VN
+      init_t_ccs: []
+      follow_checkout: true
+      stages:
+        checkout:
+          countries:
+          - VN
+          timeout: 15
+          retry: 1
+        init:
+          countries:
+          - VN
+          timeout: 10
+          retry: 1
+        update:
+          countries:
+          - VN
+          timeout: 10
+          retry: 1
+        provider:
+          countries:
+          - VN
+          timeout: 8
+          retry: 1
+        approve:
+          countries:
+          - VN
+          timeout: 6
+          retry: 1
+        poll:
+          countries:
+          - GB
+          timeout: 6
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 1
+        resolve:
+          countries:
+          - VN
+          timeout: 6
+          retry: 1
+      billing_country: GB
+      attempts: 3
+      oaics:
+        label: OAICS 五段
+        channel: paypal
+        token_source: stripe
+        require_zero: true
+        channel_check: true
+        billing_country: US
+        attempts: 5
+        stages:
+          checkout:
+            countries:
+            - VN
+            timeout: 8
+            retry: 1
+          taxes:
+            countries:
+            - VN
+            timeout: 8
+            retry: 1
+          provider:
+            countries:
+            - VN
+            timeout: 8
+            retry: 1
+          confirm:
+            countries:
+            - VN
+            timeout: 8
+            retry: 1
+          resolve:
+            countries:
+            - VN
+            timeout: 8
+            retry: 1
+    momo:
+      label: MoMo 提链
+      channel: momo
+      token_source: momo
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs:
+      - VN
+      init1_ccs:
+      - VN
+      init_t_ccs:
+      - VN
+      follow_checkout: true
+      billing_country: auto
+      stages:
+        checkout:
+          countries:
+          - VN
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - VN
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - VN
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - VN
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - VN
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - VN
+          timeout: 20
+          retry: 2
+    grok:
+      label: Grok 链路
+      channel: card
+      token_source: grok
+      require_zero: false
+      channel_check: true
+      dual_init: false
+      init0_ccs:
+      - US
+      init1_ccs:
+      - US
+      init_t_ccs: []
+      follow_checkout: true
+      stages:
+        checkout:
+          countries:
+          - US
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - US
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - US
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - auto
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - US
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - US
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - US
+          timeout: 20
+          retry: 2
+    pix:
+      label: PIX 二维码
+      channel: pix
+      token_source: pix
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs:
+      - BR
+      init1_ccs:
+      - BR
+      init_t_ccs: []
+      follow_checkout: true
+      stages:
+        checkout:
+          countries:
+          - BR
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - BR
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          - BR
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - BR
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - BR
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - BR
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - KR
+          timeout: 20
+          retry: 2
+      billing_country: auto
+    gcash:
+      label: GCash 提链
+      channel: gcash
+      token_source: gcash
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: true
+      stages:
+        checkout:
+          countries:
+          - PH
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - PH
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          - PH
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - PH
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - PH
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - PH
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - PH
+          timeout: 20
+          retry: 2
+      billing_country: PH
+    grabpay:
+      label: GrabPay 提链
+      channel: grabpay
+      token_source: grabpay
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: true
+      stages:
+        checkout:
+          countries:
+          - PH
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - PH
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          - PH
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - PH
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - PH
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - PH
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - PH
+          timeout: 20
+          retry: 2
+      billing_country: PH
+    qris:
+      label: QRIS 提链
+      channel: gopay
+      token_source: qris
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: true
+      stages:
+        checkout:
+          countries:
+          - ID
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - ID
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          - ID
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - ID
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - ID
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - ID
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - ID
+          timeout: 20
+          retry: 2
+      billing_country: ID
+    ideal:
+      label: iDEAL 提链
+      channel: ideal
+      token_source: ideal
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: false
+      stages:
+        checkout:
+          countries:
+          - NL
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - NL
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - NL
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - NL
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - NL
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - NL
+          timeout: 20
+          retry: 2
+      billing_country: auto
+    upi:
+      label: UPI 提链
+      channel: upi
+      token_source: upi
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: false
+      stages:
+        checkout:
+          countries:
+          - IN
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - IN
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - IN
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - IN
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - IN
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - IN
+          timeout: 20
+          retry: 2
+      billing_country: auto
+    kakao:
+      label: Kakao Pay 提链
+      channel: kakao
+      token_source: kakao
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: false
+      stages:
+        checkout:
+          countries:
+          - KR
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - KR
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - KR
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - KR
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - KR
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - KR
+          timeout: 20
+          retry: 2
+      billing_country: auto
+    blik:
+      label: BLIK 提链
+      channel: blik
+      token_source: blik
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: true
+      stages:
+        checkout:
+          countries:
+          - PL
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - PL
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - PL
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - PL
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - PL
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - PL
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - PL
+          timeout: 20
+          retry: 2
+      billing_country: auto
+    twint:
+      label: TWINT 提链
+      channel: twint
+      token_source: twint
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: false
+      stages:
+        checkout:
+          countries:
+          - CH
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - CH
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - CH
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - CH
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - CH
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - CH
+          timeout: 20
+          retry: 2
+      billing_country: auto
+    direct:
+      label: 直卡提链
+      channel: card
+      token_source: direct
+      require_zero: true
+      channel_check: false
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: false
+      bind_card: false
+      taxfree_state: DE
+      stages:
+        checkout:
+          countries:
+          - US
+          timeout: 45
+          retry: 3
+        init:
+          countries:
+          - US
+          timeout: 10
+          retry: 1
+        update:
+          countries:
+          - TR
+          timeout: 45
+          retry: 3
+        provider:
+          countries:
+          - US
+          timeout: 8
+          retry: 1
+        approve:
+          countries:
+          - US
+          timeout: 6
+          retry: 1
+        poll:
+          countries:
+          - US
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 1
+        resolve:
+          countries:
+          - US
+          timeout: 20
+          retry: 1
+      billing_country: PH
+    bizum:
+      label: Bizum 提链
+      channel: bizum
+      token_source: bizum
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: false
+      stages:
+        checkout:
+          countries:
+          - ES
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - ES
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - ES
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - ES
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - ES
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - ES
+          timeout: 20
+          retry: 2
+      billing_country: auto
+    gopay:
+      label: GoPay 提链
+      channel: gopay
+      token_source: gopay
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: false
+      stages:
+        checkout:
+          countries:
+          - ID
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - ID
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - ID
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - ID
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - ID
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - ID
+          timeout: 20
+          retry: 2
+      billing_country: auto
+    naver_pay:
+      label: Naver Pay 提链
+      channel: naver_pay
+      token_source: naver_pay
+      require_zero: true
+      channel_check: true
+      dual_init: false
+      init0_ccs: []
+      init1_ccs: []
+      init_t_ccs: []
+      follow_checkout: false
+      stages:
+        checkout:
+          countries:
+          - KR
+          timeout: 15
+          retry: 3
+        init:
+          countries:
+          - KR
+          timeout: 10
+          retry: 3
+        update:
+          countries:
+          - VN
+          timeout: 10
+          retry: 3
+        provider:
+          countries:
+          - KR
+          timeout: 8
+          retry: 3
+        approve:
+          countries:
+          - KR
+          timeout: 6
+          retry: 3
+        poll:
+          countries:
+          - KR
+          timeout: 25
+          retry: 1
+          poll_interval: 0.75
+          max_polls: 40
+        resolve:
+          countries:
+          - KR
+          timeout: 20
+          retry: 2
+      billing_country: auto
+  stages:
+    checkout:
+      countries:
+      - US
+      - GB
+      timeout: 15
+      retry: 3
+    init:
+      countries:
+      - US
+      - AU
+      timeout: 10
+      retry: 3
+    update:
+      countries:
+      - TH
+      - BR
+      timeout: 10
+      retry: 3
+    provider:
+      countries:
+      - US
+      timeout: 8
+      retry: 3
+    approve:
+      countries:
+      - JP
+      - US
+      - HK
+      timeout: 6
+      retry: 3
+    poll:
+      countries:
+      - US
+      - JP
+      timeout: 25
+      retry: 1
+      poll_interval: 0.75
+      max_polls: 40
+    resolve:
+      countries:
+      - US
+      - JP
+      timeout: 20
+      retry: 2
+stripe:
+  init_version: 2025-03-31.basil; checkout_server_update_beta=v1; checkout_manual_approval_preview=v1
+  runtime_version: 6f8494a281
+  checkout_url: https://chatgpt.com/backend-api/payments/checkout
+  approve_url: https://chatgpt.com/backend-api/payments/checkout/approve
+  init_url_tmpl: https://api.stripe.com/v1/payment_pages/{cs}/init
+  update_url_tmpl: https://api.stripe.com/v1/payment_pages/{cs}/update
+  pm_url: https://api.stripe.com/v1/payment_methods
+  confirm_url_tmpl: https://api.stripe.com/v1/payment_pages/{cs}/confirm
+  poll_url_tmpl: https://api.stripe.com/v1/payment_pages/{cs}
+tls:
+  impersonate: chrome146
+  user_agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
+    like Gecko) Chrome/146.0.7423.118 Safari/537.36
+  accept_language: en-US,en;q=0.9
+storage:
+  db_path: tokens.db
+  samples_dir: samples
+  runs_dir: runs
+register_pool:
+  base_url: http://127.0.0.1:8780
+  timeout: 15
+momo:
+  enabled: false
+  connect_intercept: true
+  dns_fix: true
+  pm_inject: true
+  confirm_build: true
+  resolve_regex: true
+logging:
+  level: INFO
+  json_logs: false

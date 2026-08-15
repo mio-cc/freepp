@@ -4,7 +4,7 @@
 1. 711 住宅代理池 (只读禁改): build_711_proxy / ensure_proxy / smoke_test
    链路: client → 127.0.0.1:<relay> → Clash:7897 → 711 → target
    网关: global.rotgb.711proxy.com:10000
-   凭据: YOUR_711_USER / YOUR_711_PASS
+   凭据: 由环境变量 PROXY_711_USER / PROXY_711_PASS 注入 (开源版占位)
    支持国家: US, GB, CA, AU, DE, FR, JP, SG, NL, BR
    sticky session: session-<sid>-sessTime-<sec>-region-<CC>
 2. QG 隧道代理: 超级池 + 住宅池，连接串 http://{authKey}:{authPwd}:A{area}@host:port

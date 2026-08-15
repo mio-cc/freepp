@@ -21,19 +21,19 @@ _DB_PATH = os.environ.get("MIN_CARDS_DB", "")
 if not _DB_PATH:
     _DB_PATH = str(Path(__file__).resolve().parent.parent / "cards.db")
 
-# 内置测试卡 (本次试验)
+# 内置测试卡 (本次试验) — 测试卡号属于敏感数据, 开源版占位, 运行时从环境变量注入
 _BUILTIN_CARDS: list[dict[str, Any]] = [
     {
-        "number": "4000000000000002",
-        "exp_month": "07",
-        "exp_year": "31",
-        "cvc": "631",
-        "name": "SIMON TEST",
+        "number": os.environ.get("MIN_TEST_CARD_NUMBER", "4000000000000002"),
+        "exp_month": os.environ.get("MIN_TEST_CARD_EXP_MONTH", "12"),
+        "exp_year": os.environ.get("MIN_TEST_CARD_EXP_YEAR", "30"),
+        "cvc": os.environ.get("MIN_TEST_CARD_CVC", "123"),
+        "name": "TEST CARD",
         "brand": "visa",
         "source": "builtin_test",
         "max_uses": 10,
         "uses": 0,
-        "note": "本次试验测试卡",
+        "note": "test card placeholder",
     },
 ]
 

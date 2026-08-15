@@ -10,7 +10,7 @@
      → POST /v1/setup_intents/{final}/confirm → succeeded
   4. 订阅验证: GET /backend-api/subscriptions → plan_type == "plus"
 
-卡片来源: core/card_store (内置测试卡 4000 0000 0000 0002 / 07/31 / 631)
+卡片来源: core/card_store (内置测试卡 4000 0000 0000 0002 / 12/30 / 123)
 免税地址: core/taxfree_store (DE/NH/MT/OR/AK)
 """
 from __future__ import annotations
