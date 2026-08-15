@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Pure HTTP (+ local Node DOM) fingerprint stack for PayPal BA authchallenge.
 
 Reverses GPT_PLUS_PP纯协议版 + desktop autofill/vxt findings into a runnable
@@ -2154,9 +2154,9 @@ def main() -> int:
     if args.samples:
         # Read URLs from samples/success.jsonl — GET only, never authorize
         targets = {
+            "BA-XXXXXXXXXXXXXXX1",
             "BA-XXXXXXXXXXXXXXX2",
             "BA-XXXXXXXXXXXXXXX3",
-            "BA-XXXXXXXXXXXXXXX4",
         }
         path = ROOT / "samples" / "success.jsonl"
         with open(path, "r", encoding="utf-8") as f:

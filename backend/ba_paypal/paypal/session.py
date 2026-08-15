@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import re
 from http.cookiejar import Cookie
@@ -182,7 +182,7 @@ def paypal_captcha_bypass_mode() -> str:
     dashed = normalized.replace("_", "-")
     if not normalized:
         # 默认 frontend_disable: authchallenge 用本地 synthetic close 绕过
-        # (8/11 BA-XXXXXXXXXXXXXXX1 成功路径), 不依赖环境变量显式配置。
+        # (8/11 BA-XXXXXXXXXXXXXXX2 成功路径), 不依赖环境变量显式配置。
         if strict_browser_risk_enabled() and not _env_truthy("PAYPAL_ALLOW_SYNTHETIC_CAPTCHA"):
             logger.warning(
                 "Default CAPTCHA mode frontend_disable is ignored while "

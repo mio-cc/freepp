@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """PayPal Billing Agreement approval automation.
 
 Usage:
@@ -62,7 +62,7 @@ def main():
     )
     parser.add_argument(
         "--ba-token", required=True,
-        help="Billing Agreement token (e.g. BA-XXXXXXXXXXXXXXX5)"
+        help="Billing Agreement token (e.g. BA-XXXXXXXXXXXXXXX1)"
     )
     parser.add_argument(
         "--phone",
