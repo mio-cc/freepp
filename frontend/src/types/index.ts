@@ -282,6 +282,49 @@ export interface BABaSnap {
   last_msg: string;
 }
 
+/* ==========================================================================
+   GPT 账号注册
+   ========================================================================== */
+export interface RegEvent {
+  seq: number;
+  ts: string;
+  type: "start" | "log" | "progress" | "complete" | "error";
+  stage?: string;
+  message?: string;
+  task_id?: string;
+  total?: number;
+  index?: number;
+  ok?: boolean;
+  success?: number;
+  failed?: number;
+  error?: string;
+  results?: { index: number; email: string | null; ok: boolean; error: string | null; id: number | null }[];
+}
+
+export interface RegAccount {
+  id: number;
+  email: string;
+  alive_status: string;
+  plan_type: string;
+  source_email: string | null;
+  email_mode: string | null;
+  status: string;
+  error_code: string | null;
+  error_detail: string | null;
+  register_ts: string | null;
+  created_at: string;
+  has_password: boolean;
+  has_access_token: boolean;
+  has_session_token: boolean;
+}
+
+export interface RegStatus {
+  ok: boolean;
+  running: boolean;
+  task_id: string | null;
+  last_seq: number;
+}
+
 /** 视图名称 */
 export type ViewName =
   | "overview" | "chains" | "logs"
@@ -291,6 +334,7 @@ export type ViewName =
   | "bizum" | "gopay" | "naver_pay"
   | "gcash" | "grabpay" | "qris"
   | "direct_pay"
+  | "register"
   | "analytics" | "samples" | "settings";
 
 /* ==========================================================================

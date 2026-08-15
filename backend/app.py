@@ -38,6 +38,7 @@ from api.stats import router as stats_router
 from api.tokens import router as tokens_router
 from api.paypal import router as paypal_router
 from api.directpay import router as directpay_router
+from api.register import router as register_router
 from api.deps import runtime
 from core.config import settings
 from core.orchestrator import AsyncChainOrchestrator, ConnectionManager
@@ -136,6 +137,7 @@ app.include_router(stats_router)
 app.include_router(config_router)
 app.include_router(paypal_router)
 app.include_router(directpay_router)
+app.include_router(register_router)
 
 
 # =============================================================================

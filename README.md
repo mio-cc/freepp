@@ -157,6 +157,20 @@ PAYPAL_SMSBOWER_API_KEY=你的key
 | `MIN_OAICS_SENTINEL` | `0` 时禁用 | Sentinel 头开关 |
 | `PROXY_711_HOST` / `PROXY_711_PORT` | 711proxy.com:10000 | 711 网关覆盖 |
 
+## 四·五、GPT 账号注册 (面板 "资源 → 账号注册")
+
+内置 ChatGPT 账号注册功能 (`backend/reg/`)，协议：next-auth OAuth → OTP →
+sentinel create_account → access/session token。成功账号自动写入 Token 库
+(`source=register`)，可直接用于提链。
+
+| 变量 | 说明 |
+|---|---|
+| `REG_IMAP_ACCOUNTS` | 163 IMAP 渠道凭据 JSON：`[{"host":"imap.163.com","port":993,"user":"...","auth":"...","label":"..."}]` |
+| `REG_DDG_TOKEN` / `REG_DDG_TOKENS` | (可选) DDG 别名渠道 token，默认空 |
+
+邮箱渠道：`mailtm` (零依赖在线 API，默认) / `163` (IMAP)。代理留空时自动
+启用 711 住宅中继。
+
 ## 五、链路概览
 
 项目内置 **16 个提链分支**, 均可在面板 "链路配置" 或 `config.yaml → chain.branches.<name>.stages`

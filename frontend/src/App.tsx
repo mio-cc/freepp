@@ -19,6 +19,7 @@ import { PayPalExtractView } from "./views/PayPalExtractView";
 import { AnalyticsView } from "./views/AnalyticsView";
 import { SamplesView } from "./views/SamplesView";
 import { SettingsView } from "./views/SettingsView";
+import { RegisterView } from "./views/RegisterView";
 
 export default function App() {
   useWebSocket();
@@ -75,6 +76,7 @@ export default function App() {
           {view === "direct" && <DirectView />}
           {view === "paypal" && <PayPalView />}
           {view === "direct_pay" && <DirectPayView />}
+          {view === "register" && <RegisterView />}
           {view === "paypal_extract" && <PayPalExtractView />}
           {view === "analytics" && <AnalyticsView />}
           {view === "samples" && <SamplesView />}

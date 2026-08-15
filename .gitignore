@@ -51,3 +51,7 @@ backend/ba_paypal/cache/
 Thumbs.db
 .idea/
 .vscode/
+# reg: runtime stats
+backend/reg/provider_stats.json
+backend/reg/tokens/
+

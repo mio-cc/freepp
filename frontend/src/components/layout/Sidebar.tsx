@@ -16,6 +16,7 @@ const NAV_GROUPS: { label: string; items: { view: ViewName; icon: string; text: 
       { view: "tokens", icon: "token", text: "Token 库" },
       { view: "proxy", icon: "proxy", text: "代理池" },
       { view: "inventory", icon: "inventory", text: "成功库存" },
+      { view: "register", icon: "register", text: "账号注册" },
     ],
   },
   {
@@ -66,6 +67,7 @@ const ICONS: Record<string, string> = {
   token: `<circle cx="8" cy="5.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M2.5 13.6a5.5 5.5 0 0 1 11 0" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>`,
   proxy: `<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M2 8h12M8 2c2.2 2.2 2.2 9.8 0 12M8 2c-2.2 2.2-2.2 9.8 0 12" fill="none" stroke="currentColor" stroke-width="1.1"/>`,
   inventory: `<path d="M2 4l6-2.2L14 4v8L8 14.2 2 12V4z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M2 4l6 2.2L14 4M8 6.2V14" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>`,
+  register: `<circle cx="5.5" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M2 12.5a3.5 3.5 0 0 1 7 0" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><path d="M11 4.5l2 2M13 2l-3.4 3.4 2 2L15 4l-2-2z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><line x1="11.4" y1="6.4" x2="13.4" y2="8.4" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>`,
   momo: `<rect x="2" y="3" width="12" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.1"/><circle cx="5.5" cy="8" r="1.2" fill="currentColor"/><circle cx="10.5" cy="8" r="1.2" fill="currentColor"/>`,
   grok: `<path d="M8 2L3 14h2.5L8 8l2.5 6H13L8 2z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>`,
   pix: `<rect x="2" y="2" width="5" height="5" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.1"/><rect x="9" y="2" width="5" height="5" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.1"/><rect x="2" y="9" width="5" height="5" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.1"/><rect x="9.5" y="9.5" width="1.5" height="1.5" fill="currentColor"/><rect x="12" y="9.5" width="1.5" height="1.5" fill="currentColor"/><rect x="9.5" y="12" width="1.5" height="1.5" fill="currentColor"/>`,
