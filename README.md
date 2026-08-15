@@ -15,7 +15,6 @@ backend/                 FastAPI 后端 (提链引擎 / 直卡 / PayPal BA / hCa
   config.yaml            ★ 本地配置 (gitignore, 用 config.example.yaml 复制)
 frontend/                React 19 + Vite 8 前端面板 (源码, 需 npm install + build)
 web/                     管理台静态资源 (index.html + static/ + dist/ 构建产物)
-docs/                    研究/架构文档
 _archive_dev/            开发期测试脚本与抓包数据 (gitignore, 不随仓库发布)
 运维.bat                 Windows 运维菜单 (启动/重启/日志/构建)
 ```
