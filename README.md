@@ -159,10 +159,31 @@ PAYPAL_SMSBOWER_API_KEY=你的key
 
 ## 五、链路概览
 
+项目内置 **16 个提链分支**, 均可在面板 "链路配置" 或 `config.yaml → chain.branches.<name>.stages`
+调整七段出口 (checkout/init/update/provider/approve/poll/resolve) 与 OAICS 五段
+(checkout/taxes/provider/confirm/resolve) 映射。
+
+| 分支 | 渠道 | 账单国 (默认) | 产出 |
+|---|---|---|---|
+| `paypal` | PayPal | auto | `paypal.com/agreements/approve?ba_token=...` |
+| `direct` | 直卡 | PH | 卡绑定 + 订阅验证 (SetupIntent 内联) |
+| `momo` | MoMo | auto | `payment.momo.vn/pay/app` 跳转 |
+| `pix` | PIX 二维码 | auto | PIX 支付二维码 |
+| `ideal` | iDEAL | auto | iDEAL 银行跳转 |
+| `upi` | UPI | auto | UPI 支付跳转 |
+| `kakao` | Kakao Pay | auto | Kakao 支付跳转 |
+| `blik` | BLIK | auto | BLIK 支付跳转 |
+| `twint` | TWINT | auto | TWINT 支付跳转 |
+| `bizum` | Bizum | auto | Bizum 支付跳转 |
+| `gopay` | GoPay | auto | GoPay 支付跳转 |
+| `qris` | QRIS | ID | QRIS 二维码 |
+| `gcash` | GCash | PH | GCash 支付跳转 |
+| `grabpay` | GrabPay | PH | GrabPay 支付跳转 |
+| `naver_pay` | Naver Pay | auto | Naver Pay 支付跳转 |
+| `grok` | Grok 链路 | auto | card 渠道提链 |
+
+核心链路形态:
 - **PayPal 提链 (paypal 分支)**: checkout → taxes → provider → confirm → resolve,
   产出 `paypal.com/agreements/approve?ba_token=...`
-- **PayPal BA 授权 (ba_paypal)**: DataDome → 建号 → 2FA → authorize, 产出 EUAT
+- **PayPal BA 授权 (ba_paypal 模块)**: DataDome → 建号 → 2FA → authorize, 产出 EUAT
 - **直卡线 (direct 分支)**: 纯 HTTP 9 步 (checkout → SetupIntent 内联 → confirm → 订阅验证)
-
-各段出口国家在面板 "链路配置" 或 `config.yaml → chain.branches.<name>.stages` 调整,
-OAICS 五段跟随七段映射 (checkout/update/provider/approve/resolve)。
