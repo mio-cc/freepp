@@ -241,6 +241,48 @@ export function SettingsView() {
 
   return (
     <div className="page">
+      {/* 0. GitHub 开源水印 */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "10px 16px",
+          marginBottom: 14,
+          borderRadius: 10,
+          border: "1px solid var(--border)",
+          background: "linear-gradient(135deg, rgba(88,166,255,0.08), rgba(255,255,255,0.02))",
+          fontSize: 12.5,
+          color: "var(--text-2)",
+        }}
+      >
+        <span style={{ fontSize: 20, lineHeight: 1 }}>⭐</span>
+        <span style={{ flex: 1 }}>
+          <span style={{ fontWeight: 600, color: "var(--text-1)" }}>项目已开源</span>
+          — 如果你觉得这个项目帮到了你，欢迎去 GitHub 点个 Star 支持一下，顺手 Fork 收藏也感谢 🙏
+        </span>
+        <a
+          href="https://github.com/mio-cc/freepp"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 12px",
+            borderRadius: 999,
+            background: "var(--accent)",
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 600,
+            textDecoration: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          ⭐ github.com/mio-cc/freepp
+        </a>
+      </div>
+
       <div className="page-head">
         <div>
           <h2 className="page-title">设置</h2>
