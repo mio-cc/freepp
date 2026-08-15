@@ -166,10 +166,3 @@ PAYPAL_SMSBOWER_API_KEY=你的key
 
 各段出口国家在面板 "链路配置" 或 `config.yaml → chain.branches.<name>.stages` 调整,
 OAICS 五段跟随七段映射 (checkout/update/provider/approve/resolve)。
-
-## 六、安全说明
-
-- 所有真实凭据不入库: 代理账号 / SMS key / 测试卡号 / token 库均在 .gitignore 中
-- 配置模板: `backend/config.example.yaml` + `backend/ba_paypal/.env.example`
-- 数据库 (tokens.db / cards.db) 为运行时生成, 勿提交
-- `_archive_dev/` 为本地开发归档, 不会随仓库发布
