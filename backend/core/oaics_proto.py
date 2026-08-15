@@ -883,7 +883,9 @@ def confirm_oaics_standard_paypal(
         d = d if isinstance(d, dict) else {"raw": (r.text or "")[:400]}
         status = str(d.get("status") or "").strip().lower()
         if status == "blocked":
-            raise OaicsConfirmBlocked("OAICS PayPal confirm blocked")
+            import json as _json
+            raise OaicsConfirmBlocked(
+                "OAICS PayPal confirm blocked: " + _json.dumps(d, ensure_ascii=False)[:500])
         if status in {"declined", "failed", "error", "expired"}:
             raise RuntimeError(f"OAICS confirm status={status}")
         return d

@@ -1467,9 +1467,11 @@ class AsyncChain:
                     self.result.pm_authorize_url = redirect
                 except op.OaicsConfirmBlocked as e:
                     await self._emit(self._geo_evt({"type": "stage_fail", "stage": "confirm",
-                                                    "country": confirm_country}))
+                                                    "country": confirm_country,
+                                                    "detail": f"OaicsConfirmBlocked: {str(e)[:500]}"}))
                     self._stage_states["confirm"] = {"state": "fail", "country": confirm_country}
-                    raise ChainStageError("approve_blocked", "oaics cpmt blocked") from e
+                    raise ChainStageError("approve_blocked",
+                                          f"oaics cpmt blocked: {str(e)[:500]}") from e
                 except op.PayPalFundingUnavailable as e:
                     await self._emit(self._geo_evt({"type": "stage_fail", "stage": "taxes",
                                                     "country": taxes_country,
@@ -1543,7 +1545,8 @@ class AsyncChain:
                                                     "country": confirm_country,
                                                     "detail": f"OaicsConfirmBlocked: {str(e)[:500]}"}))
                     self._stage_states["confirm"] = {"state": "fail", "country": confirm_country}
-                    raise ChainStageError("approve_blocked", "oaics confirm blocked") from e
+                    raise ChainStageError("approve_blocked",
+                                          f"oaics confirm blocked: {str(e)[:500]}") from e
             except op.OaicsAuthError as e:
                 raise ChainStageError("confirm_failed", str(e)) from e
             except op.PayPalFundingUnavailable as e:
