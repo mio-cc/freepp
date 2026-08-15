@@ -1540,22 +1540,25 @@ class AsyncChain:
                         attestation=attestation, cookie_jar=self._oaics_cookie_jar)
                 except op.OaicsConfirmBlocked as e:
                     await self._emit(self._geo_evt({"type": "stage_fail", "stage": "confirm",
-                                                    "country": confirm_country}))
+                                                    "country": confirm_country,
+                                                    "detail": f"OaicsConfirmBlocked: {str(e)[:500]}"}))
                     self._stage_states["confirm"] = {"state": "fail", "country": confirm_country}
                     raise ChainStageError("approve_blocked", "oaics confirm blocked") from e
             except op.OaicsAuthError as e:
                 raise ChainStageError("confirm_failed", str(e)) from e
             except op.PayPalFundingUnavailable as e:
                 await self._emit(self._geo_evt({"type": "stage_fail", "stage": "confirm",
-                                                "country": confirm_country}))
+                                                "country": confirm_country,
+                                                "detail": f"PayPalFundingUnavailable: {str(e)[:500]}"}))
                 self._stage_states["confirm"] = {"state": "fail", "country": confirm_country}
                 raise ChainStageError("paypal_unsupported", str(e)) from e
             except Exception as e:
                 await self._emit(self._geo_evt({"type": "stage_fail", "stage": "confirm",
-                                                "country": confirm_country}))
+                                                "country": confirm_country,
+                                                "detail": f"{type(e).__name__}: {str(e)[:500]}"}))
                 self._stage_states["confirm"] = {"state": "fail", "country": confirm_country}
                 raise ChainStageError("confirm_failed",
-                                      f"oaics confirm: {type(e).__name__}: {str(e)[:150]}") from e
+                                      f"oaics confirm: {type(e).__name__}: {str(e)[:500]}") from e
             redirect = extract_redirect(app_confirm) or extract_redirect_url(app_confirm)
             if not redirect:
                 try:
@@ -1563,16 +1566,18 @@ class AsyncChain:
                         op.confirm_oaics_paypal_intent, pm_proxy, ctoken, app_confirm, elements)
                 except op.PayPalFundingUnavailable as e:
                     await self._emit(self._geo_evt({"type": "stage_fail", "stage": "confirm",
-                                                    "country": confirm_country}))
+                                                    "country": confirm_country,
+                                                    "detail": f"PayPalFundingUnavailable: {str(e)[:500]}"}))
                     self._stage_states["confirm"] = {"state": "fail", "country": confirm_country}
                     raise ChainStageError("paypal_unsupported", str(e)) from e
                 except Exception as e:
                     await self._emit(self._geo_evt({"type": "stage_fail", "stage": "confirm",
-                                                    "country": confirm_country}))
+                                                    "country": confirm_country,
+                                                    "detail": f"{type(e).__name__}: {str(e)[:500]}"}))
                     self._stage_states["confirm"] = {"state": "fail", "country": confirm_country}
                     raise ChainStageError(
                         "confirm_failed",
-                        f"oaics intent confirm: {type(e).__name__}: {str(e)[:150]}") from e
+                        f"oaics intent confirm: {type(e).__name__}: {str(e)[:500]}") from e
                 redirect = extract_redirect(intent_confirm) or extract_redirect_url(intent_confirm)
             if not redirect:
                 await self._emit(self._geo_evt({"type": "stage_fail", "stage": "confirm",
