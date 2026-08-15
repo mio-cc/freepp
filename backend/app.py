@@ -9,7 +9,7 @@
 功能:
 - REST API (tokens / chain / proxy / stats / config / billing / paypal)
 - WebSocket /ws 实时推送链路状态
-- 静态文件服务 (../web/index.html + /static/*)
+- 静态文件服务 (web/dist — frontend/ React 面板构建产物)
 - 启动时初始化 SQLite / 代理池 / 调度器
 """
 from __future__ import annotations
@@ -143,31 +143,31 @@ app.include_router(directpay_router)
 # =============================================================================
 _web_dir = settings.web_dir
 _dist_dir = _web_dir / "dist"
-_static_dir = _web_dir / "static"
 
-if _static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+# 【废弃】原生 JS 管理台 (web/index.html + web/static/*) 已于 2026-08-15 移除。
+# 旧前端为早期手写页面, 已被 frontend/ (React+Vite) 完全取代;
+# 当前唯一前端 = frontend 源码 → vite build → web/dist, 由后端直接伺服。
+# 如需恢复旧版, 可 git checkout 历史 commit 取回 web/index.html 与 web/static/,
+# 并在此处重新挂载 "/static"。
+# _static_dir = _web_dir / "static"
+# if _static_dir.exists():
+#     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 if _dist_dir.exists():
-    # 优先伺服 vite 构建产物 (web/dist): 新前端
+    # 伺服 vite 构建产物 (web/dist): 当前唯一前端
     app.mount("/assets", StaticFiles(directory=str(_dist_dir / "assets")), name="dist-assets")
 
 
 @app.get("/")
 async def index():
-    """返回前端首页 (优先 vite 构建产物 web/dist, 回退旧 web/index.html)。"""
+    """返回前端首页 (vite 构建产物 web/dist, 当前唯一前端)。"""
     dist_index = _dist_dir / "index.html"
     if dist_index.exists():
         resp = FileResponse(str(dist_index))
         resp.headers["Cache-Control"] = "no-cache"
         return resp
-    index_path = _web_dir / "index.html"
-    if index_path.exists():
-        resp = FileResponse(str(index_path))
-        resp.headers["Cache-Control"] = "no-cache"
-        return resp
     return JSONResponse({"ok": True, "service": "min-implant-v2", "version": "2.0.0",
-                         "message": "前端未找到，请确认 ../web/dist 或 ../web/index.html 存在"})
+                         "message": "前端未找到，请先执行 frontend: npm run build (产物输出到 ../web/dist)"})
 
 
 # =============================================================================
