@@ -352,11 +352,41 @@ def stream_registration(count: int, email_mode: str = "mailtm", concurrency: int
 
         results, success, failed = [], 0, 0
         cancel = STATE.cancel_event
-        # 未显式给代理：优先自动 711（chatgpt.run 内部无代理时自动 fallback 711）
-        reg_proxy = proxy
+        # 每号独立 711 sticky session（对齐 codex server._make_sticky_proxy：
+        # 解析传入凭据 + 随机 region + 随机 session id → 每号不同 IP 段）
+        def _make_sticky_proxy(base_proxy: str | None) -> str | None:
+            if not base_proxy:
+                return None
+            try:
+                from core import proxy_711 as _p711
+                if not _p711.is_711_proxy(base_proxy):
+                    return base_proxy
+                # 从传入 URL 提取真实 user:pass@host:port，替换 user 为
+                # <user>-session-<随机11位>-sessTime-30-region-<随机>
+                info = _p711.parse_proxy_url(base_proxy)
+                region = _p711.pick_region()
+                import random as _r
+                import string as _st
+                sid = "".join(_r.choice(_st.ascii_lowercase + _st.digits) for _ in range(11))
+                user = f"{info['user']}-session-{sid}-sessTime-30-region-{region}"
+                from urllib.parse import quote as _quote
+                raw = (
+                    f"http://{_quote(user, safe='')}:{_quote(info['password'], safe='')}"
+                    f"@{info['host']}:{info['port']}"
+                )
+                return _p711.ensure_proxy(raw) or raw
+            except Exception as e:
+                _emit({"type": "log", "stage": "engine",
+                       "message": f"sticky proxy 构建失败（用原始代理）: {repr(e)[:120]}"})
+                return base_proxy
+
         idx = 0
         while idx < total and not cancel.is_set():
             idx += 1
+            reg_proxy = _make_sticky_proxy(proxy)
+            if reg_proxy and reg_proxy != proxy:
+                _emit({"type": "log", "stage": "engine",
+                       "message": f"[{idx}/{total}] 711 粘性 session: {reg_proxy.split('@')[-1]}"})
             r = register_one(email_mode, reg_proxy, cancel, _emit)
             ok = bool(r.get("email")) and not r.get("error_code")
             status = "active" if ok else "disabled"

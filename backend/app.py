@@ -85,6 +85,18 @@ async def lifespan(app: FastAPI):
     runtime.started = True
     # 3. 代理池健康检查循环
     await proxy_pool.start_health_loop()
+    # 3b. 注册功能: api798 邮箱提取渠道 (卡密文件经环境变量注入, 不落仓库)
+    try:
+        from reg import engine as _reg_engine
+        from reg.channel_api798 import load_mailboxes, build_channel
+        _kml = os.environ.get("REG_API798_MAILBOXES", "").strip()
+        if _kml and os.path.isfile(_kml):
+            _mbs = load_mailboxes(_kml)
+            if _mbs:
+                _reg_engine.register_email_channel("api798", build_channel(_mbs))
+                print(f"[min-implant] 注册渠道 api798 已加载 {len(_mbs)} 个邮箱")
+    except Exception as _e:
+        print(f"[min-implant] 注册渠道 api798 加载失败: {_e}")
     # 4. 初始健康检查
     try:
         nodes = await proxy_pool.health_check()

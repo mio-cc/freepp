@@ -7,6 +7,8 @@ rem  可移植路径探测: 优先环境变量, 其次 PATH, 最后常见位置
 rem  PYTHON  -> backend 运行时 (可选, 但必需)
 rem  NODE    -> sentinel mint / 前端构建 (必需)
 rem ============================================================
+rem ?????????? pyfull??????????????Σ????β??? Python?????? PATH
+if not defined PYTHON if exist "%TEMP%\opencode\pyfull\python.exe" set "PYTHON=%TEMP%\opencode\pyfull\python.exe"
 if defined PYTHON (set "PY=%PYTHON%") else (set "PY=python")
 if defined NODE_BIN (set "NODE=%NODE_BIN%") else (set "NODE=node")
 
@@ -15,6 +17,14 @@ set "FEWORK=%~dp0frontend"
 set "PORT=8770"
 set "FEPORT=5173"
 set "LOGDIR=%TEMP%\min-implant-v2"
+
+rem ==== 711 residential proxy creds: env first, then local file (never in git) ====
+if not defined PROXY_711_USER if exist "%USERPROFILE%\.min_711_creds.bat" call "%USERPROFILE%\.min_711_creds.bat"
+
+rem ==== api798 注册卡密文件（可被环境变量覆盖）====
+if not defined REG_API798_MAILBOXES (
+  if exist "%TEMP%\opencode\mailboxes_20260816.txt" set "REG_API798_MAILBOXES=%TEMP%\opencode\mailboxes_20260816.txt"
+)
 set "OUT=%LOGDIR%\backend_out.log"
 set "ERR=%LOGDIR%\backend_err.log"
 set "FEOUT=%LOGDIR%\frontend_out.log"
