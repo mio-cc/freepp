@@ -24,9 +24,20 @@ const BRANCH_TOKEN_SOURCE: Record<string, string> = {
   blik: "blik",
   twint: "twint",
   direct: "direct",
+  register: "register",
 };
 
-function activeBranchTokenSource(b: BranchName): string {
+/** 下拉选项: 提链分支 + 注册账号源 (source=register) */
+const TOKEN_SOURCE_OPTIONS: { key: string; label: string; source: string }[] = [
+  ...(Object.keys(BRANCH_CN) as BranchName[]).map((b) => ({
+    key: b,
+    label: `提链: ${BRANCH_CN[b]} (${BRANCH_TOKEN_SOURCE[b]})`,
+    source: BRANCH_TOKEN_SOURCE[b],
+  })),
+  { key: "register", label: "注册账号 (register)", source: "register" },
+];
+
+function activeBranchTokenSource(b: string): string {
   return BRANCH_TOKEN_SOURCE[b] || "stripe";
 }
 
@@ -111,6 +122,7 @@ export function TokensView() {
   const pushLog = useStore((s) => s.pushLog);
   const activeBranch = useStore((s) => s.activeBranch);
   const setActiveBranch = useStore((s) => s.setActiveBranch);
+  const [sourceFilter, setSourceFilter] = useState<string>(() => BRANCH_TOKEN_SOURCE[activeBranch] || "stripe");
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -132,6 +144,9 @@ export function TokensView() {
 
   const tokenSource = (t: Token): string => (t as any).source || "stripe";
 
+  /** 当前视图标签: register 源用 "注册账号", 否则用分支中文名 */
+  const viewBranchLabel = sourceFilter === "register" ? "注册账号" : BRANCH_CN[activeBranch] || activeBranch;
+
   /** 防御: tags 可能为数组/字符串/undefined */
   const tagsOf = (t: any): string[] =>
     Array.isArray(t?.tags) ? t.tags : typeof t?.tags === "string" && t.tags ? t.tags.split(",").map((s: string) => s.trim()).filter(Boolean) : [];
@@ -139,7 +154,7 @@ export function TokensView() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tokens.filter((t) => {
-      if (tokenSource(t) !== activeBranchTokenSource(activeBranch)) return false;
+      if (tokenSource(t) !== sourceFilter) return false;
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
       if (tagFilter && !tagsOf(t).includes(tagFilter)) return false;
       if (!q) return true;
@@ -149,16 +164,16 @@ export function TokensView() {
         (t.account_id || "").toLowerCase().includes(q)
       );
     });
-  }, [tokens, search, statusFilter, activeBranch, tagFilter]);
+  }, [tokens, search, statusFilter, sourceFilter, tagFilter]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
     tokens.forEach((t) => {
-      if (tokenSource(t) !== activeBranchTokenSource(activeBranch)) return;
+      if (tokenSource(t) !== sourceFilter) return;
       tagsOf(t).forEach((tag) => set.add(tag));
     });
     return Array.from(set).sort();
-  }, [tokens, activeBranch]);
+  }, [tokens, sourceFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -169,7 +184,7 @@ export function TokensView() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, activeBranch, pageSize, tagFilter]);
+  }, [search, statusFilter, sourceFilter, pageSize, tagFilter]);
 
   const allSelected =
     pageTokens.length > 0 && pageTokens.every((t) => selectedTokenIds.has(t.id));
@@ -189,12 +204,12 @@ export function TokensView() {
   const statBadges = useMemo(() => {
     const c: Record<string, number> = {};
     for (const t of tokens) {
-      if (tokenSource(t) !== activeBranchTokenSource(activeBranch)) continue;
+      if (tokenSource(t) !== sourceFilter) continue;
       c[t.status || "idle"] = (c[t.status || "idle"] || 0) + 1;
     }
     return c;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tokens, activeBranch]);
+  }, [tokens, sourceFilter]);
 
   const handleRefresh = async () => {
     setBusy(true);
@@ -202,8 +217,8 @@ export function TokensView() {
       const r = await api("/api/tokens");
       if (r && Array.isArray(r.tokens)) {
         useStore.setState({ tokens: r.tokens });
-        const cur = r.tokens.filter((t: Token) => tokenSource(t) === activeBranchTokenSource(activeBranch));
-        setResult(`已刷新，共 ${r.tokens.length} 个 Token（${activeBranchTokenSource(activeBranch)} 库 ${cur.length} 个）`);
+        const cur = r.tokens.filter((t: Token) => tokenSource(t) === sourceFilter);
+        setResult(`已刷新，共 ${r.tokens.length} 个 Token（${sourceFilter} 库 ${cur.length} 个）`);
       } else {
         setResult("刷新失败: 返回数据异常");
       }
@@ -454,7 +469,7 @@ function collectTokens(o: any, out: CalibItem[]) {
     try {
       const r = await api("/api/tokens/import", "POST", {
         raw,
-        source: activeBranchTokenSource(activeBranch),
+        source: sourceFilter,
       });
       const tokensR = await api("/api/tokens");
       if (tokensR && Array.isArray(tokensR.tokens)) {
@@ -479,7 +494,7 @@ function collectTokens(o: any, out: CalibItem[]) {
     try {
       const r = await api("/api/tokens/import-from-pool", "POST", {
         base_url: poolUrl.trim() || undefined,
-        source: activeBranchTokenSource(activeBranch),
+        source: sourceFilter,
       });
       if (r && r.ok) {
         setPoolResult(`拉取 ${r.total ?? 0}, 导入 ${r.imported ?? 0}, 去重跳过 ${r.skipped ?? 0}`);
@@ -503,20 +518,20 @@ function collectTokens(o: any, out: CalibItem[]) {
     try {
       const res = await api("/api/chain/batch", "POST", {
         token_ids: ids,
-        branch: activeBranch,
+        branch: sourceFilter === "register" ? "paypal" : activeBranch,
       });
       const label = ids.length === 1
         ? (tokens.find((t) => t.id === ids[0])?.email || ids[0])
         : `${ids.length} 个 Token`;
       if (res && res.error) {
-        pushLog(`${BRANCH_CN[activeBranch]} 提链启动失败: ${res.error}`, "err");
+        pushLog(`${viewBranchLabel} 提链启动失败: ${res.error}`, "err");
         setResult(`启动失败: ${res.error}`);
       } else {
-        pushLog(`${BRANCH_CN[activeBranch]} 提链启动: ${label}`, "ok");
-        setResult(`已启动 ${ids.length} 个 Token 的 ${BRANCH_CN[activeBranch]} 提链`);
+        pushLog(`${viewBranchLabel} 提链启动: ${label}`, "ok");
+        setResult(`已启动 ${ids.length} 个 Token 的 ${viewBranchLabel} 提链`);
       }
     } catch (e) {
-      pushLog(`${BRANCH_CN[activeBranch]} 提链启动失败: ${(e as Error).message}`, "err");
+      pushLog(`${viewBranchLabel} 提链启动失败: ${(e as Error).message}`, "err");
       setResult("启动失败: 后端不可用");
     } finally {
       setBusy(false);
@@ -542,22 +557,23 @@ function collectTokens(o: any, out: CalibItem[]) {
         <div>
           <h2 className="page-title">Token 库</h2>
           <p className="page-sub">
-            库存邮箱 · {BRANCH_CN[activeBranch]} 提链入口 · token 库 {activeBranchTokenSource(activeBranch)}
+            库存邮箱 · {sourceFilter === "register" ? "注册账号" : `${viewBranchLabel} 提链入口`} · token 库 {sourceFilter}
           </p>
         </div>
         <div className="page-actions">
           <select
             className="select"
-            style={{ width: 170 }}
-            value={activeBranch}
+            style={{ width: 200 }}
+            value={sourceFilter}
             onChange={(e) => {
-              setActiveBranch(e.target.value as BranchName);
+              const v = e.target.value;
+              setSourceFilter(v);
               clearTokenSelection();
             }}
           >
-            {(Object.keys(BRANCH_CN) as BranchName[]).map((b) => (
-              <option key={b} value={b}>
-                提链: {BRANCH_CN[b]} ({BRANCH_TOKEN_SOURCE[b]})
+            {TOKEN_SOURCE_OPTIONS.map((o) => (
+              <option key={o.key} value={o.source}>
+                {o.label}
               </option>
             ))}
           </select>
@@ -618,9 +634,9 @@ function collectTokens(o: any, out: CalibItem[]) {
 
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-head">
-          <span className="card-title">批量提链 — {BRANCH_CN[activeBranch]}</span>
+          <span className="card-title">批量提链 — {viewBranchLabel}</span>
           <span className="card-hint">
-            勾选几个就提几个 · 段重试/总尝试/账单国在「{BRANCH_CN[activeBranch]}」链路配置页 · 已提链/失败的 Token 可重提
+            勾选几个就提几个 · 段重试/总尝试/账单国在「{viewBranchLabel}」链路配置页 · 已提链/失败的 Token 可重提
           </span>
         </div>
         <div className="card-body tight">
@@ -682,7 +698,7 @@ function collectTokens(o: any, out: CalibItem[]) {
 
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-head">
-          <span className="card-title">导入 Token → {BRANCH_CN[activeBranch]} 库</span>
+          <span className="card-title">导入 Token → {viewBranchLabel} 库</span>
           <span className="card-hint">
             粘贴 / 选择文件 / 选择文件夹 / 拖拽导入 · 自动解析全部 GPT 导出格式 (raw / session / cpa /
             sub2api / codex2api / codexmanager / cockpit / codex / JWT / JWE)
@@ -816,7 +832,7 @@ function collectTokens(o: any, out: CalibItem[]) {
 
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-head">
-          <span className="card-title">从注册池导入 → {BRANCH_CN[activeBranch]} 库</span>
+          <span className="card-title">从注册池导入 → {viewBranchLabel} 库</span>
           <span className="card-hint">
             拉取 codex_register 未使用邮箱/token · access_token + email 双重去重
           </span>
