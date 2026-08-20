@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "../api/client";
+import { useStore } from "../store/useStore";
 import type { StageName, StageCfg, BranchName, BranchCfg } from "../types";
 
 /* ==========================================================================
@@ -130,6 +131,7 @@ function BillingRow({ t }: { t: BillingTemplate }) {
    主组件
    ========================================================================== */
 export function SettingsView() {
+  const setView = useStore((s) => s.setView);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [templates, setTemplates] = useState<BillingTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -251,7 +253,7 @@ export function SettingsView() {
           marginBottom: 14,
           borderRadius: 10,
           border: "1px solid var(--border)",
-          background: "linear-gradient(135deg, rgba(88,166,255,0.08), rgba(255,255,255,0.02))",
+          background: "linear-gradient(135deg, var(--accent-dim), transparent)",
           fontSize: 12.5,
           color: "var(--text-2)",
         }}
@@ -272,7 +274,7 @@ export function SettingsView() {
             padding: "5px 12px",
             borderRadius: 999,
             background: "var(--accent)",
-            color: "#fff",
+            color: "var(--text-invert)",
             fontSize: 12,
             fontWeight: 600,
             textDecoration: "none",
@@ -295,11 +297,14 @@ export function SettingsView() {
           <button className="btn btn-sm" onClick={loadConfig}>
             刷新
           </button>
+          <button className="btn btn-primary btn-sm" onClick={() => setView("secrets")}>
+            编辑密钥与凭据 →
+          </button>
         </div>
       </div>
 
       {/* 1. 账单国配置 */}
-      <div className="card settings-panel">
+      <div className="card">
         <div className="card-head">
           <span className="card-title">账单国配置</span>
           <span className="card-hint">Payment Method billing_details · 贴近出口国</span>
@@ -389,7 +394,7 @@ export function SettingsView() {
       </div>
 
       {/* 3. PayPal 支付授权 */}
-      <div className="card settings-panel">
+      <div className="card">
         <div className="card-head">
           <span className="card-title">PayPal 支付授权</span>
           <span className="card-hint">BA (Billing Agreement) Approve · 提链目标</span>
@@ -461,7 +466,7 @@ export function SettingsView() {
       </div>
 
       {/* 4. Stripe Init 指纹 */}
-      <div className="card settings-panel">
+      <div className="card">
         <div className="card-head">
           <span className="card-title">Stripe Init 指纹</span>
           <span className="card-hint">payment_pages init 版本 · 运行时</span>
@@ -495,7 +500,7 @@ export function SettingsView() {
       </div>
 
       {/* 5. TLS 指纹 */}
-      <div className="card settings-panel">
+      <div className="card">
         <div className="card-head">
           <span className="card-title">TLS 指纹</span>
           <span className="card-hint">curl_cffi impersonate</span>
@@ -523,7 +528,7 @@ export function SettingsView() {
       </div>
 
       {/* 6. 代理配置 */}
-      <div className="card settings-panel">
+      <div className="card">
         <div className="card-head">
           <span className="card-title">代理配置</span>
           <span className="card-hint">青果隧道 · 711 代理池</span>
@@ -581,7 +586,7 @@ export function SettingsView() {
       </div>
 
       {/* 7. MoMo 补丁 */}
-      <div className="card settings-panel">
+      <div className="card">
         <div className="card-head">
           <span className="card-title">MoMo 提链补丁</span>
           <span className="card-hint">五层 Patch · {momo.enabled ? "已启用" : "未启用"}</span>
@@ -607,7 +612,7 @@ export function SettingsView() {
       </div>
 
       {/* 8. 服务器配置 */}
-      <div className="card settings-panel">
+      <div className="card">
         <div className="card-head">
           <span className="card-title">服务器配置</span>
           <span className="card-hint">FastAPI · {server.chain_mode} 模式</span>
@@ -743,8 +748,8 @@ function makeMockConfig(): AppConfig {
       default_pool: "qg_resi_pool",
       health_check_interval: 30,
       max_concurrent_per_node: 3,
-      qg_super_pool: { host: "overseas.tunnel.qg.net", port: 16629, auth_key: "VT****KP", auth_pwd: "6B****EF" },
-      qg_resi_pool: { host: "overseas.tunnel.qg.net", port: 14408, auth_key: "VX****1B", auth_pwd: "9D****1C" },
+      qg_super_pool: { host: "overseas.tunnel.qg.net", port: 16629, auth_key: "", auth_pwd: "" },
+      qg_resi_pool: { host: "overseas.tunnel.qg.net", port: 14408, auth_key: "", auth_pwd: "" },
       proxy_711: { enabled: true, relay_base: "127.0.0.1", clash_port: 7897, relay_port_start: 18077, relay_port_end: 18117 },
     },
     momo: {

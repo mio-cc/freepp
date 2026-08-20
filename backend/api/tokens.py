@@ -255,6 +255,7 @@ async def list_inventory(channel: str | None = None, limit: int = 200):
     out = []
     for r in recs:
         out.append({
+            "id": r.get("id"),
             "ba_id": r.get("ba") or "",
             "email": r.get("email") or "",
             "country": r.get("billing_country") or "",
@@ -274,6 +275,16 @@ async def clear_inventory(body: dict | None = None):
     channel = str((body or {}).get("channel") or "").strip().lower() or None
     deleted = await token_store.clear_success(channel)
     return {"ok": True, "deleted": deleted, "channel": channel or "all"}
+
+
+@router.post("/inventory/bulk_delete")
+async def bulk_delete_inventory(body: dict | None = None):
+    """批量删除成功库存记录。body: {ids: [1, 2, 3]}"""
+    ids = [int(x) for x in (body or {}).get("ids", []) if str(x).strip().isdigit()]
+    if not ids:
+        return {"ok": False, "error": "未提供有效 ID", "deleted": 0}
+    deleted = await token_store.bulk_delete_inventory(ids)
+    return {"ok": True, "deleted": deleted}
 
 
 @router.post("/repair")
@@ -301,6 +312,19 @@ async def repair_tokens():
 async def delete_token(token_id: str):
     ok = await token_store.delete_token(token_id)
     return {"ok": ok, "error": "" if ok else "Token 不存在"}
+
+
+@router.post("/bulk_delete")
+async def bulk_delete_tokens(body: dict | None = None):
+    """批量删除 Token。body: {ids: ["t1", "t2"]}"""
+    ids = [str(x).strip() for x in (body or {}).get("ids", []) if str(x).strip()]
+    if not ids:
+        return {"ok": False, "error": "未提供有效 ID", "deleted": 0}
+    deleted = await token_store.bulk_delete_tokens(ids)
+    # 广播更新
+    if runtime.conn_mgr:
+        await runtime.conn_mgr.broadcast({"type": "token_deleted", "ids": ids, "deleted": deleted})
+    return {"ok": True, "deleted": deleted}
 
 
 @router.post("/probe")

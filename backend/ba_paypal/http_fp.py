@@ -252,7 +252,12 @@ def extract_authchallenge_context(
 
 
 def _default_browser_profile(region: str = "MX") -> dict[str, Any]:
-    """Mac Chrome surface aligned with ba_authorize + region timezone."""
+    """Mac Chrome surface aligned with ba_authorize + region timezone.
+
+    15 国走 country_profile (IANA 时区 + zoneinfo 运行时偏移, DST 安全);
+    未收录国家 (如 MX) 回退静态表。偏移用 JS getTimezoneOffset 约定
+    (西正东负), 与 Node 桥 Date#getTimezoneOffset 注入对齐。
+    """
     region = (region or "MX").upper()
     tz_map = {
         "MX": ("America/Mexico_City", 360),
@@ -260,8 +265,18 @@ def _default_browser_profile(region: str = "MX") -> dict[str, Any]:
         "US": ("America/New_York", 300),
         "GB": ("Europe/London", 0),
     }
-    tz, off = tz_map.get(region, tz_map["MX"])
-    lang = "es-MX" if region == "MX" else ("pt-BR" if region == "BR" else "en-US")
+    try:
+        try:
+            from paypal.country_profile import country_context
+        except ImportError:
+            from .paypal.country_profile import country_context
+
+        ctx = country_context(region)
+        tz, off = ctx.timezone, -ctx.tz_offset_minutes
+        lang = ctx.language
+    except Exception:
+        tz, off = tz_map.get(region, tz_map["MX"])
+        lang = "es-MX" if region == "MX" else ("pt-BR" if region == "BR" else "en-US")
     return {
         "language": lang,
         "languages": [lang, lang.split("-")[0], "en-US", "en"],
@@ -2008,7 +2023,7 @@ def probe_ba_readonly(
 
     os.environ.setdefault("MIN_BA_SKIP_ENTRY_CAPTCHA", "1")  # we control captcha ourselves
     proxy = proxy or _make_proxy(region, session_tag)
-    auth = BAAuthorizer(proxy=proxy, fp_country=region if region in ("MX", "BR") else "MX")
+    auth = BAAuthorizer(proxy=proxy, fp_country=region)
 
     row: dict[str, Any] = {
         "ba_url": ba_url[:120],

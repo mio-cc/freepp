@@ -1,0 +1,33 @@
+/* StateDot 原语 — 7px 圆点, 状态色 */
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-full);
+  flex-shrink: 0;
+}
+
+.green {
+  background: var(--ok);
+}
+.grey {
+  background: var(--text-3);
+}
+.orange {
+  background: var(--warn);
+}
+.red {
+  background: var(--danger);
+}
+.blue {
+  background: var(--info);
+}
+
+/* 脉动 (运行态), reduced-motion 时由全局守护降为静态 */
+.pulse {
+  animation: dot-pulse 1.1s var(--mi-ease) infinite;
+}
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

@@ -97,13 +97,16 @@ class StatsAggregator:
         cell["ok" if ok else "fail"] += 1
 
     def to_dict(self) -> dict[str, Any]:
+        # 返回冻结快照: record_* 与 to_dict 并发 (广播 stats_update 时)
+        # 会读到半更新的 dict; 浅拷贝顶层 + 深拷贝内层避免撕裂读。
+        import copy as _copy
         return {
             "success": self.success,
             "failure": self.failure,
-            "byCountry": self.byCountry,
-            "failByCountry": self.failByCountry,
-            "reasons": self.reasons,
-            "stageMatrix": self.stageMatrix,
+            "byCountry": dict(self.byCountry),
+            "failByCountry": dict(self.failByCountry),
+            "reasons": dict(self.reasons),
+            "stageMatrix": _copy.deepcopy(self.stageMatrix),
         }
 
     def reset(self) -> None:
@@ -313,6 +316,8 @@ class AsyncChainOrchestrator:
         })
         # 并发上限默认 = 选中条数 (不设限流)，仅当显式传 max_concurrent 时作限制
         max_conc = int(options.get("max_concurrent") or len(tokens) or 1)
+        # 重建信号量: stop_batch 先 await 旧 _batch_task 收尾再清 _batch_running,
+        # 故此处无 in-flight 链持有旧信号量, 重建不会让旧链脱离新限流。
         self.semaphore = asyncio.Semaphore(max(1, max_conc))
 
         async def _run_all() -> None:
@@ -367,7 +372,9 @@ class AsyncChainOrchestrator:
                 ch.cancel()
         # 停止时必须复位批量状态并通知前端, 否则 _run_all 被取消后
         # 收尾代码不执行, _batch_running 永久 True (前端"停止全部"一直红/可点)
-        self._batch_running = False
+        # 顺序: 先 await 旧 _batch_task 收尾 (让 in-flight 链退出 run_chain 的信号量块),
+        # 再清 _batch_running — 否则旧轮在飞链仍持有旧信号量时新轮已重建,
+        # 旧链脱离新限流 (审计 #3)。
         if self._batch_task:
             self._batch_task.cancel()
             try:
@@ -376,6 +383,7 @@ class AsyncChainOrchestrator:
                 pass
             except Exception:
                 pass
+        self._batch_running = False
         await self.conn_mgr.broadcast({
             "type": "batch_done", "success": 0, "failure": 0,
             "elapsed": round(time.time() - self._batch_start_time, 2),
@@ -386,9 +394,12 @@ class AsyncChainOrchestrator:
     # 状态查询
     # ------------------------------------------------------------------
     def status(self) -> dict[str, Any]:
-        active = sum(1 for c in self.chain_states.values() if c.get("status") == "running")
-        success = sum(1 for c in self.chain_states.values() if c.get("status") == "success")
-        failed = sum(1 for c in self.chain_states.values() if c.get("status") == "failed")
+        # 快照 chain_states: emit 与 status() 同事件循环, 但统计期间 chain_start/success
+        # 可能插入新键致 dict changed size during iteration; 拷贝一份再聚合。
+        states = list(self.chain_states.items())
+        active = sum(1 for _, c in states if c.get("status") == "running")
+        success = sum(1 for _, c in states if c.get("status") == "success")
+        failed = sum(1 for _, c in states if c.get("status") == "failed")
         queued = max(0, self._batch_total - self._batch_done - active) if self._batch_running else 0
         return {
             "running": self._batch_running,
@@ -399,18 +410,27 @@ class AsyncChainOrchestrator:
             "total": self._batch_total,
             "done": self._batch_done,
             "chains": [
-                {"chain_id": cid, **c} for cid, c in list(self.chain_states.items())[:50]
+                {"chain_id": cid, **c} for cid, c in states[:50]
             ],
         }
 
     def sync_payload(self) -> dict[str, Any]:
         """WebSocket sync 事件载荷。"""
+        import copy as _copy
+        traffic = {}
+        try:
+            from .proxy_pool import proxy_pool
+            traffic = proxy_pool.get_traffic()
+        except Exception:
+            pass
         return {
             "type": "sync",
-            "chains": self.chain_states,
+            # 深拷贝: 前端拿到的快照不应被后续 emit 就地修改 (撕裂读)。
+            "chains": _copy.deepcopy(self.chain_states),
             "stats": self.stats.to_dict(),
             "running": self._batch_running,
-            "latencies": self.stats.latencies[-100:],
+            "latencies": list(self.stats.latencies[-100:]),
+            "traffic": traffic,
         }
 
     async def shutdown(self) -> None:

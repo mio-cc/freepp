@@ -56,7 +56,7 @@ export function LogsView() {
   }, [display]);
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h2 className="page-title">实时日志</h2>

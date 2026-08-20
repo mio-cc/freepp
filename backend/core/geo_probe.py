@@ -172,6 +172,11 @@ def _probe(url: str, proxy: str, parse: Callable[[dict[str, Any]], tuple[str, st
         if proxy:
             s.proxies = {"http": proxy, "https": proxy}
         r = s.get(url, timeout=timeout, verify=False)
+        try:
+            from . import traffic as _traffic
+            _traffic.record(_traffic.BLOCK_DETECT, r)
+        except Exception:
+            pass
         if r.status_code == 200:
             try:
                 d = r.json()

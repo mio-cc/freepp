@@ -113,7 +113,7 @@ export function AnalyticsView() {
   };
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h2 className="page-title">统计分析</h2>

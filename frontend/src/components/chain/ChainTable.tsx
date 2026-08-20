@@ -106,7 +106,7 @@ function ChainTableInner({ chainList, onClick }: Props) {
                   <td>
                     <span className="tag">#{id.slice(0, 8)}</span>
                     {cs.linkMode === "oaics" && (
-                      <span className="tag" style={{ color: "var(--oaics, #3b82f6)", background: "rgba(59,130,246,.12)", border: "1px solid rgba(59,130,246,.35)", fontSize: 10, marginLeft: 4 }}>OAICS</span>
+                      <span className="tag" style={{ color: "var(--oaics)", background: "var(--oaics-soft)", border: "1px solid var(--oaics-soft)", fontSize: 10, marginLeft: 4 }}>OAICS</span>
                     )}
                     {cs.channelDetect && (
                       <div className="cell-sub" style={{ marginTop: 2 }}>
@@ -136,17 +136,24 @@ function ChainTableInner({ chainList, onClick }: Props) {
                     const sd = isOaics
                       ? (oaicsSrc ? cs.stages[oaicsSrc] : undefined)
                       : cs.stages[s];
-                    const title = isOaics && oaicsSrc
-                      ? `${OAICS_STAGE_CN[oaicsSrc]} (OAICS)${sd?.country ? " · " + sd.country : ""}`
-                      : `${STAGE_CN[s]}${sd?.country ? " · " + sd.country : ""}`;
-                    let cls = "stage-cell chain-cell" + (isOaics ? " oaics" : "");
+                    const act = (sd?.actualCountry || "").toUpperCase();
+                    const req = (sd?.country || "").toUpperCase();
+                    const drifted = !!act && !!req && act !== req;
+                    const geoTail = act
+                      ? ` · 真实 ${act}${sd?.exitIp ? ` (${sd.exitIp})` : ""}${sd?.geoConfidence ? ` ${Math.round((sd.geoConfidence || 0) * 100)}%` : ""}`
+                      : "";
+                    const baseLabel = isOaics && oaicsSrc
+                      ? `${OAICS_STAGE_CN[oaicsSrc]} (OAICS)`
+                      : `${STAGE_CN[s]}`;
+                    const title = `${baseLabel}${req ? ` · 配置 ${req}` : ""}${drifted ? ` → 真实 ${act} ⚠` : geoTail}`;
+                    let cls = "stage-cell chain-cell" + (isOaics ? " oaics" : "") + (drifted ? " drift" : "");
                     let label = "";
                     if (!oaicsSrc && isOaics) {
                       // oaics 不走的段: 直接跳过
                       label = "·";
                     } else if (sd?.state === "ok") {
                       cls += " ok";
-                      label = sd.country || "✓";
+                      label = drifted ? `${sd.country || "✓"}→${act}⚠` : (sd.country || "✓");
                     } else if (sd?.state === "fail") {
                       cls += " fail";
                       label = "✗";

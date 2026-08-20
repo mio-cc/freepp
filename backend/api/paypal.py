@@ -49,6 +49,8 @@ _BA_CONFIG_FILE = os.path.join(
 
 _ba_config: dict[str, Any] = {
     "sms_provider": "smsbower",
+    "sms_api_key": "",
+    "grizzly_api_key": "",
     "sms_price": "0.5",
     "sms_price_min": "0",
     "sms_max_attempts": 12,
@@ -66,18 +68,21 @@ _ba_config: dict[str, Any] = {
     "max_concurrent": 3,
     "flow_timeout_s": 120,
 }
+# _ba_config 在多个异步授权任务间共享读写 (update_ba_config 写 / _merged_ba_config 读),
+# 无锁并发 dict() 拷贝时若另一协程正 update 触发 resize 会 RuntimeError。
+_ba_config_lock = threading.Lock()
 
 
 def _load_ba_config() -> None:
     """启动/模块加载时从 ba_config.json 恢复上次配置 (不存在则用默认)。"""
-    global _ba_config
     try:
         if not os.path.exists(_BA_CONFIG_FILE):
             return
         with open(_BA_CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
-            _ba_config.update({k: v for k, v in data.items() if v is not None})
+            with _ba_config_lock:
+                _ba_config.update({k: v for k, v in data.items() if v is not None})
     except Exception:
         pass
 
@@ -86,8 +91,10 @@ def _save_ba_config() -> None:
     """配置变更立即落盘, 下次启动/刷新自动恢复。"""
     try:
         tmp = _BA_CONFIG_FILE + ".tmp"
+        with _ba_config_lock:
+            snapshot = dict(_ba_config)
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(_ba_config, f, ensure_ascii=False, indent=1)
+            json.dump(snapshot, f, ensure_ascii=False, indent=1)
         os.replace(tmp, _BA_CONFIG_FILE)
     except OSError:
         pass
@@ -106,7 +113,8 @@ def _merged_ba_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     历史问题: `req.config or _ba_config` 在前端只传部分字段时不合并默认,
     导致 buyer_mode 等回落硬编码旧值 (original / 0.02 等)。
     """
-    merged = dict(_ba_config)
+    with _ba_config_lock:
+        merged = dict(_ba_config)
     if isinstance(raw, dict):
         merged.update(raw)
     return merged
@@ -120,7 +128,8 @@ def _ba_concurrency_cap(cfg: dict[str, Any] | None = None) -> int:
     except Exception:
         pass
     try:
-        return max(1, int(_ba_config.get("max_concurrent") or 3))
+        with _ba_config_lock:
+            return max(1, int(_ba_config.get("max_concurrent") or 3))
     except Exception:
         return 3
 
@@ -155,6 +164,7 @@ class BABatchRequest(BaseModel):
 class BAConfigUpdate(BaseModel):
     sms_provider: str | None = None
     sms_api_key: str | None = None
+    grizzly_api_key: str | None = None
     sms_price: str | None = None
     sms_price_min: str | None = None
     sms_max_attempts: int | None = None
@@ -304,56 +314,79 @@ def _resolve_sms_country_code(raw: str, ctx) -> tuple[str, str]:
 
 
 def _build_sms_provider(country: str, cfg: dict[str, Any]):
-    """按国家上下文构造 SMSBower provider (接码国家 + 手机国码 + 价格上限)。
+    """按国家上下文构造接码 provider (smsbower / grizzly, 接码国家 + 手机国码 + 价格区间)。
 
-    目前仅实现 smsbower (sms_activate/5sim 等选项前端将置灰禁用)。
+    2026-08-16: 接入 GrizzlySMS (SMSBower VN 号池被 PayPal 2FA 全拒)。
     """
     provider_name = str(cfg.get("sms_provider") or "smsbower").strip().lower()
-    if provider_name not in ("smsbower", "sms_bower", ""):
-        return None, f"unsupported_sms_provider:{provider_name} (仅支持 smsbower)"
+    if provider_name not in ("smsbower", "sms_bower", "grizzly", "grizzlysms", ""):
+        return None, f"unsupported_sms_provider:{provider_name} (支持 smsbower/grizzly)"
     from ba_paypal.paypal.country_profile import country_context as _ctx
     ctx = _ctx(country)
+    api_key = str(cfg.get("sms_api_key") or "").strip() or None
+    if provider_name in ("grizzly", "grizzlysms"):
+        try:
+            from ba_paypal.paypal.grizzly import build_grizzly_provider, grizzly_country_id
+            # 接码国: 字母 ISO 优先; 数字为 smsbower 遗产码, 回退授权国
+            raw = str(cfg.get("sms_country") or "").strip().upper()
+            iso = raw if raw and not raw.isdigit() else str(country or "").strip().upper()
+            try:
+                phone_cc = _ctx(iso).phone_country
+            except Exception:
+                phone_cc = "+84"
+            # grizzly 用独立 key 字段, 不复用 smsbower 的 sms_api_key
+            provider = build_grizzly_provider(
+                enabled=True,
+                api_key=str(cfg.get("grizzly_api_key") or "").strip() or None,
+                country=grizzly_country_id(iso), phone_cc=phone_cc,
+            )
+            if provider is None:
+                return None, "grizzly_disabled"
+        except Exception as exc:
+            return None, f"grizzly_provider_exc:{exc}"
+    else:
+        try:
+            from ba_paypal.paypal.smsbower import build_smsbower_provider as _build
+            provider = _build(enabled=True, api_key=api_key)
+            if provider is None:
+                return None, "smsbower_disabled"
+            provider.country, provider.phone_cc = _resolve_sms_country_code(
+                cfg.get("sms_country"), ctx
+            )
+        except Exception as exc:
+            return None, f"sms_provider_exc:{exc}"
+    # 共享调参 (两 provider 同名属性): 价格区间 / 换号轮数 / 单号等待
     try:
-        from ba_paypal.paypal.smsbower import build_smsbower_provider as _build
-        api_key = str(cfg.get("sms_api_key") or "").strip() or None
-        provider = _build(enabled=True, api_key=api_key)
-        if provider is None:
-            return None, "smsbower_disabled"
-        provider.country, provider.phone_cc = _resolve_sms_country_code(
-            cfg.get("sms_country"), ctx
-        )
-        try:
-            price = float(str(cfg.get("sms_price") or "0.5"))
-            if price > 0:
-                provider.max_price = price
-        except Exception:
-            pass
-        try:
-            price_min = float(str(cfg.get("sms_price_min") or "0"))
-            if price_min > 0:
-                provider.min_price = price_min
-        except Exception:
-            pass
-        try:
-            max_attempts = int(cfg.get("sms_max_attempts") or 12)
-            if max_attempts > 0:
-                provider.max_attempts = max(1, max_attempts)
-        except Exception:
-            pass
-        try:
-            sms_timeout = float(str(cfg.get("sms_timeout") or "15"))
-            if sms_timeout >= 1:
-                provider.wait_seconds = sms_timeout
-        except Exception:
-            pass
-        return provider, ""
-    except Exception as exc:
-        return None, f"sms_provider_exc:{exc}"
+        price = float(str(cfg.get("sms_price") or "0.5"))
+        if price > 0:
+            provider.max_price = price
+    except Exception:
+        pass
+    try:
+        price_min = float(str(cfg.get("sms_price_min") or "0"))
+        if price_min > 0:
+            provider.min_price = price_min
+    except Exception:
+        pass
+    try:
+        max_attempts = int(cfg.get("sms_max_attempts") or 12)
+        if max_attempts > 0:
+            provider.max_attempts = max(1, max_attempts)
+    except Exception:
+        pass
+    try:
+        sms_timeout = float(str(cfg.get("sms_timeout") or "15"))
+        if sms_timeout >= 1:
+            provider.wait_seconds = sms_timeout
+    except Exception:
+        pass
+    return provider, ""
 
 
 async def _run_authorize_task(ba_token: str, cfg: dict[str, Any]) -> None:
     """单条授权后台任务 (country 随 record / ctx 组装)。"""
     from ba_paypal import BAAuthorizer
+    from api.deps import emit_ws
 
     record = ba_get(ba_token)
     if record is None:
@@ -371,7 +404,9 @@ async def _run_authorize_task(ba_token: str, cfg: dict[str, Any]) -> None:
     fail_fast = bool(cfg.get("fail_fast_geo", True))
     geo = None
     if proxy_source == "auto" or not proxy:
-        geo = _geo_precheck(proxy, country)
+        # geo 探测用 curl_cffi 同步阻塞 IO, 放线程池避免阻塞事件循环
+        # (多授权任务并发启动时否则串行卡 PROBE_TIMEOUT×源数)。
+        geo = await asyncio.to_thread(_geo_precheck, proxy, country)
         if not geo.get("ok"):
             ba_update(
                 ba_token,
@@ -420,41 +455,75 @@ async def _run_authorize_task(ba_token: str, cfg: dict[str, Any]) -> None:
                 if m_phone:
                     ba_update(ba_token, sms_phone=m_phone.group(1).strip())
             ba_update(ba_token, step=step, last_msg=detail, last_level=level)
+            # 同步广播进度到 WebSocket (供全局实时日志 / 一键流程页实时可见)
+            try:
+                from api.deps import emit_ws
+                emit_ws({
+                    "type": "ba_progress",
+                    "ba_token": ba_token,
+                    "email": record.get("email", ""),
+                    "step": step,
+                    "msg": detail,
+                    "level": level,
+                })
+            except Exception:
+                pass
         except Exception:
             pass
 
     def _run() -> dict:
-        auth = BAAuthorizer(proxy=proxy or None, fp_country=country)
-        return auth.authorize(
-            f"https://www.paypal.com/agreements/approve?ba_token={ba_token}",
-            phone=str(cfg.get("phone") or "").strip() or None,
-            buyer_mode=str(cfg.get("buyer_mode") or "elevation").strip().lower(),
-            country=country,
-            identity=cfg.get("identity"),
-            sms_provider=sms_provider,
-            max_card_attempts=int(cfg.get("max_retries") or 3) + 2,
-            max_flow_attempts=int(cfg.get("max_flow_attempts") or 2),
-            max_authorize_attempts=int(cfg.get("max_retries") or 3),
-            on_step=_on_flow_progress,
-        )
+        from core import traffic as _traffic
+        _traffic.set_block(_traffic.BLOCK_PAY)
+        try:
+            auth = BAAuthorizer(proxy=proxy or None, fp_country=country)
+            return auth.authorize(
+                f"https://www.paypal.com/agreements/approve?ba_token={ba_token}",
+                phone=str(cfg.get("phone") or "").strip() or None,
+                buyer_mode=str(cfg.get("buyer_mode") or "elevation").strip().lower(),
+                country=country,
+                identity=cfg.get("identity"),
+                sms_provider=sms_provider,
+                max_card_attempts=int(cfg.get("max_retries") or 3) + 2,
+                max_flow_attempts=int(cfg.get("max_flow_attempts") or 2),
+                max_authorize_attempts=int(cfg.get("max_retries") or 3),
+                on_step=_on_flow_progress,
+            )
+        finally:
+            _traffic.clear_block()
 
     try:
         # 超时兜底: flow 卡死 (如 Playwright 清理挂起) 时强制收尾写队列, 不无限 running
-        timeout_s = float(cfg.get("flow_timeout_s") or 480)
+        # 超时默认值对齐 config 默认 (120s), 而非旧 fallback 480s, 避免无谓长卡。
+        timeout_s = float(cfg.get("flow_timeout_s") or 120)
         result = await asyncio.wait_for(asyncio.to_thread(_run), timeout=timeout_s)
         ok = result.get("status") == "success"
+        _email = (
+            (result.get("user") or {}).get("email", "")
+            if ok and isinstance(result.get("user"), dict)
+            else record.get("email", "")
+        )
         ba_update(
             ba_token,
             status="success" if ok else "failed",
-            step="done" if ok else str(result.get("reason") or "failed"),
-            error="" if ok else str(result.get("error") or result.get("reason") or ""),
-            email=(
-                (result.get("user") or {}).get("email", "")
-                if ok and isinstance(result.get("user"), dict)
-                else record.get("email", "")
-            ),
+            # step 用规范阶段名(前端 BA_STEP_CN 可映射), 失败原因放 error 字段, 不污染 step。
+            step="done" if ok else "failed",
+            error="" if ok else str(result.get("reason") or result.get("error") or "failed"),
+            email=_email,
         )
+        # 广播终态到 WebSocket (全局实时日志 / 一键流程页可见)
+        if ok:
+            emit_ws({
+                "type": "ba_success", "ba_token": ba_token,
+                "email": _email, "country": country,
+            })
+        else:
+            emit_ws({
+                "type": "ba_failed", "ba_token": ba_token,
+                "email": record.get("email", ""),
+                "error": str(result.get("reason") or result.get("error") or "failed"),
+            })
     except asyncio.TimeoutError:
+        import logging as _logging
         timed_out.set()
         ba_update(
             ba_token,
@@ -465,6 +534,10 @@ async def _run_authorize_task(ba_token: str, cfg: dict[str, Any]) -> None:
         _logging.getLogger("api.paypal").warning(
             "BA authorize flow timed out after %ss: %s", timeout_s, ba_token,
         )
+        emit_ws({
+            "type": "ba_failed", "ba_token": ba_token,
+            "email": record.get("email", ""), "error": f"flow_timeout ({timeout_s:.0f}s)",
+        })
     except Exception as exc:
         import logging as _logging
         import traceback as _tb
@@ -474,7 +547,12 @@ async def _run_authorize_task(ba_token: str, cfg: dict[str, Any]) -> None:
             exc,
             _tb.format_exc(),
         )
-        ba_update(ba_token, status="failed", error=f"{type(exc).__name__}: {exc}")
+        _err = f"{type(exc).__name__}: {exc}"
+        ba_update(ba_token, status="failed", error=_err)
+        emit_ws({
+            "type": "ba_failed", "ba_token": ba_token,
+            "email": record.get("email", ""), "error": _err,
+        })
     finally:
         _ba_release_slot()
 
@@ -779,7 +857,8 @@ async def clear_ba_records(req: BAClearRequest) -> dict[str, Any]:
 @router.get("/ba/config")
 async def get_ba_config() -> dict[str, Any]:
     """获取 BA 授权配置。"""
-    return {"ok": True, "config": _ba_config}
+    with _ba_config_lock:
+        return {"ok": True, "config": dict(_ba_config)}
 
 
 @router.post("/ba/config")
@@ -796,9 +875,11 @@ async def update_ba_config(req: BAConfigUpdate) -> dict[str, Any]:
             os.environ["PAYPAL_CAPTCHA_BYPASS_MODE"] = strategy
         else:
             updates["captcha_strategy"] = ""
-    _ba_config.update(updates)
+    with _ba_config_lock:
+        _ba_config.update(updates)
+        snapshot = dict(_ba_config)
     _save_ba_config()
-    return {"ok": True, "config": _ba_config}
+    return {"ok": True, "config": snapshot}
 
 
 @router.get("/ba/stats")
@@ -902,9 +983,29 @@ async def identity_generate(req: IdentityRequest) -> dict[str, Any]:
 
 
 @router.get("/sms/quote")
-async def sms_quote(country: str, service: str | None = None) -> dict[str, Any]:
-    """接码报价: 该国最低价可用供应商列表 (带 TTL 缓存, 批量同国只查一次)。"""
+async def sms_quote(country: str, service: str | None = None, provider: str | None = None) -> dict[str, Any]:
+    """接码报价: 该国最低价可用供应商列表 (带 TTL 缓存, 批量同国只查一次)。
+
+    provider: smsbower (默认) / grizzly (GrizzlySMS 聚合价单档)。
+    """
     cc = (country or "").strip().upper()
+    pname = (provider or "").strip().lower()
+    if pname in ("grizzly", "grizzlysms"):
+        try:
+            from ba_paypal.paypal.grizzly import GrizzlyClient, grizzly_country_id
+            from ba_paypal.paypal.smsbower import _load_dotenv_value
+            # 已保存的 grizzly key 优先 (与授权时实际用的 key 一致), 缺省回落 .env
+            with _ba_config_lock:
+                gkey = str(_ba_config.get("grizzly_api_key") or "").strip() \
+                    or _load_dotenv_value("GRIZZLYSMS_API_KEY")
+            client = GrizzlyClient(gkey)
+            info = client.get_prices(service or "ts", grizzly_country_id(cc))
+            quotes = [{"provider_id": "grizzly", "price": info.get("price") or 0.0,
+                       "count": info.get("count") or 0, "currency": "USD",
+                       "service": service or "ts"}]
+            return {"ok": True, "country": cc, "quotes": quotes, "service": service or "ts"}
+        except Exception as exc:
+            return {"ok": False, "country": cc, "error": str(exc), "quotes": []}
     try:
         from ba_paypal.paypal.smsbower import build_provider_for_quote
         quotes = build_provider_for_quote(cc, service=service)

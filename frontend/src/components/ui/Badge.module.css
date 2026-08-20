@@ -1,0 +1,34 @@
+/* Badge 原语 — h22, r11, 状态色族 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.neutral {
+  background: var(--bg-raised);
+  color: var(--text-3);
+}

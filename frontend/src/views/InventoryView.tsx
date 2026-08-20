@@ -106,6 +106,7 @@ export function InventoryView() {
     setLoaded(false);
     setPage(1);
     setCountry("all");
+    setSelected(new Set());
     fetchInventory(branchChannel);
   }, [branchChannel, fetchInventory]);
 
@@ -193,17 +194,65 @@ export function InventoryView() {
         .join(",")
     );
     const csv = "\uFEFF" + headers.join(",") + "\n" + rows.join("\n");
+    downloadCsv(csv, `inventory_${branchChannel}_${Date.now()}.csv`);
+  };
+
+  /* ── 批量管理 ── */
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  // 基于可见(过滤后)记录的选择集
+  const selectableIds = shown.map((r) => r.id).filter((id): id is number => id != null);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const toggleSelect = (id: number) =>
+    setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleSelectAll = () =>
+    setSelected(allSelected ? new Set() : new Set(selectableIds));
+
+  async function bulkDelete() {
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    if (!window.confirm(`确认删除选中的 ${ids.length} 条成功库存？此操作不可撤销。`)) return;
+    setBulkDeleting(true);
+    try {
+      const r = await api<{ ok: boolean; deleted?: number; error?: string }>("/api/tokens/inventory/bulk_delete", "POST", { ids });
+      if (r?.ok) {
+        setSelected(new Set());
+        await fetchInventory(branchChannel);
+        pushLog(`批量删除 ${r.deleted ?? 0} 条成功库存`, "ok");
+      } else {
+        pushLog(`批量删除失败: ${r?.error || "未知"}`, "err");
+      }
+    } catch (e) {
+      pushLog("批量删除失败: " + (e as Error).message, "err");
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
+  function handleExportSelected() {
+    const picked = shown.filter((r) => r.id != null && selected.has(r.id));
+    if (!picked.length) return;
+    const headers = ["ba_id", "email", "country", "paypal_url", "amount", "currency", "time"];
+    const escape = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows = picked.map((r) =>
+      [r.ba_id, r.email, r.country, r.paypal_url, r.amount, r.currency, r.time].map(escape).join(",")
+    );
+    const csv = "\uFEFF" + headers.join(",") + "\n" + rows.join("\n");
+    downloadCsv(csv, `inventory_selected_${branchChannel}_${Date.now()}.csv`);
+  }
+
+  function downloadCsv(csv: string, filename: string) {
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `inventory_${branchChannel}_${Date.now()}.csv`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h2 className="page-title">成功账单 (BA) 库</h2>
@@ -286,9 +335,22 @@ export function InventoryView() {
       </div>
 
       <div className="table-wrap">
+        {selected.size > 0 && (
+          <div className="batch-bar">
+            <span className="tag">已选 {selected.size}</span>
+            <button className="btn btn-sm btn-danger" onClick={bulkDelete} disabled={bulkDeleting}>
+              {bulkDeleting ? "删除中…" : "删除所选"}
+            </button>
+            <button className="btn btn-sm" onClick={handleExportSelected}>导出所选 CSV</button>
+            <button className="btn btn-sm btn-ghost" onClick={() => setSelected(new Set())}>取消选择</button>
+          </div>
+        )}
         <table className="table">
           <thead>
             <tr>
+              <th style={{ width: 32 }}>
+                <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
+              </th>
               <th>BA ID</th>
               <th>Email</th>
               <th>国家</th>
@@ -301,20 +363,21 @@ export function InventoryView() {
           <tbody>
             {loading && !loaded && (
               <tr>
-                <td colSpan={7} className="muted" style={{ textAlign: "center" }}>
+                <td colSpan={8} className="muted" style={{ textAlign: "center" }}>
                   加载中...
                 </td>
               </tr>
             )}
             {!loading && loaded && pageItems.length === 0 && (
               <tr>
-                <td colSpan={7} className="muted" style={{ textAlign: "center" }}>
+                <td colSpan={8} className="muted" style={{ textAlign: "center" }}>
                   暂无数据 — 该渠道提链成功后将自动入库
                 </td>
               </tr>
             )}
             {pageItems.map((r, i) => (
-              <tr key={`${r.ba_id}-${i}`}>
+              <tr key={`${r.ba_id}-${i}`} className={r.id != null && selected.has(r.id) ? "row-selected" : ""}>
+                <td><input type="checkbox" checked={r.id != null && selected.has(r.id)} onChange={() => r.id != null && toggleSelect(r.id)} /></td>
                 <td className="mono cell-strong">{r.ba_id || "-"}</td>
                 <td title={r.email}>{truncate(r.email, 24)}</td>
                 <td>{flag(r.country)} {r.country || "-"}</td>

@@ -651,6 +651,8 @@ def bind_card(
     out: dict[str, Any] = {"ok": False, "step": ""}
     s = chatgpt_session(proxy, access_token, session_token)
     stripe_js_id = str(uuid.uuid4())
+    from core import traffic as _traffic
+    _traffic.set_block(_traffic.BLOCK_PAY)
     try:
         # --- Step 1: checkout context (如有 checkout_id) ---
         if checkout_id and processor:
@@ -768,6 +770,7 @@ def bind_card(
         log.exception("bind_card failed")
         return out
     finally:
+        _traffic.clear_block()
         s.close()
 
 
@@ -803,6 +806,9 @@ def bind_and_pay(
     """
     out: dict[str, Any] = {"ok": False, "step": ""}
 
+    from core import traffic as _traffic
+    _traffic.set_block(_traffic.BLOCK_PAY)
+
     # --- Phase 1: 绑卡 (Step 1-4) ---
     bind = bind_card(
         proxy, access_token, account_id, card, session_token,
@@ -822,6 +828,7 @@ def bind_and_pay(
     out["customer"] = customer
 
     s = chatgpt_session(proxy, access_token, session_token)
+    _traffic.set_block(_traffic.BLOCK_PAY)  # bind_card 内部 clear 后需重设, Phase 2 仍属 pay
     try:
         # --- Phase 2: 支付确认 (Step 5-6) ---
         # Step 5: confirmation_token
@@ -930,4 +937,5 @@ def bind_and_pay(
         log.exception("bind_and_pay failed")
         return out
     finally:
+        _traffic.clear_block()
         s.close()

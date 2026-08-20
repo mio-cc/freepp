@@ -198,7 +198,7 @@ export function ProxyView() {
   const runningCount = nodes.filter((n) => n.running).length;
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h2 className="page-title">代理池</h2>

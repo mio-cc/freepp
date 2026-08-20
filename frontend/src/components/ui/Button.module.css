@@ -1,0 +1,112 @@
+/* Button 原语 — 胶囊风格 (对齐 deepseek-harness 参考设计), 引用别名层 token, 暗色自动适配。
+   primary 无边框 + 反色文字; 其余变体柔和边框 + hover。 */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  border-radius: var(--r-btn);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--mi-dur-fast) var(--mi-ease),
+    border-color var(--mi-dur-fast) var(--mi-ease),
+    color var(--mi-dur-fast) var(--mi-ease),
+    transform var(--mi-dur-fast) var(--mi-ease);
+}
+.button:hover:not(:disabled) {
+  background: var(--interactive-hover);
+  border-color: var(--border-strong);
+}
+.button:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 尺寸 */
+.sm {
+  padding: 0 11px;
+  font-size: 11.5px;
+  height: 28px;
+  border-radius: var(--r-btn);
+}
+.md {
+  height: 32px;
+}
+.lg {
+  height: 38px;
+  padding: 0 20px;
+  font-size: 13.5px;
+  border-radius: var(--r-btn);
+}
+
+/* 变体 */
+.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--bg-base);
+  font-weight: 600;
+}
+.primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: transparent;
+}
+
+.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+.ghost:hover:not(:disabled) {
+  background: var(--interactive-hover);
+  color: var(--text-1);
+  border-color: transparent;
+}
+
+.outline {
+  background: transparent;
+  border-color: var(--border);
+}
+.outline:hover:not(:disabled) {
+  background: var(--interactive-hover);
+  border-color: var(--border-strong);
+}
+
+.danger {
+  background: var(--danger-soft);
+  border-color: transparent;
+  color: var(--danger);
+}
+.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: transparent;
+}
+
+.success {
+  background: var(--ok-soft);
+  border-color: transparent;
+  color: var(--ok);
+}
+.success:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: transparent;
+}
+
+/* 图标 */
+.icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}

@@ -1,4 +1,5 @@
 import { useWebSocket } from "./hooks/useWebSocket";
+import { useTheme } from "./hooks/useTheme";
 import { useStore } from "./store/useStore";
 import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -19,10 +20,14 @@ import { PayPalExtractView } from "./views/PayPalExtractView";
 import { AnalyticsView } from "./views/AnalyticsView";
 import { SamplesView } from "./views/SamplesView";
 import { SettingsView } from "./views/SettingsView";
+import { SecretsView } from "./views/SecretsView";
 import { RegisterView } from "./views/RegisterView";
+import { MailPoolView } from "./views/MailPoolView";
+import { PipelineView } from "./views/PipelineView";
 
 export default function App() {
   useWebSocket();
+  useTheme();
   const view = useStore((s) => s.currentView);
 
   return (
@@ -32,6 +37,7 @@ export default function App() {
         <Sidebar />
         <main className="content">
           {view === "overview" && <OverviewView />}
+          {view === "pipeline" && <PipelineView />}
           {view === "chains" && <ChainsView />}
           {view === "logs" && <LogsView />}
           {view === "tokens" && <TokensView />}
@@ -77,10 +83,12 @@ export default function App() {
           {view === "paypal" && <PayPalView />}
           {view === "direct_pay" && <DirectPayView />}
           {view === "register" && <RegisterView />}
+          {view === "mailpool" && <MailPoolView />}
           {view === "paypal_extract" && <PayPalExtractView />}
           {view === "analytics" && <AnalyticsView />}
           {view === "samples" && <SamplesView />}
           {view === "settings" && <SettingsView />}
+          {view === "secrets" && <SecretsView />}
         </main>
       </div>
     </div>

@@ -51,6 +51,7 @@ async def samples(success: str | None = None, limit: int = 100):
     out = []
     for r in rows:
         out.append({
+            "id": r.get("id"),
             "ts": r.get("ts", ""), "email": r.get("email", ""),
             "success": bool(r.get("success", 0)),
             "reason_code": r.get("reason_code", ""),
@@ -67,6 +68,16 @@ async def samples(success: str | None = None, limit: int = 100):
             "geo_confidence": r.get("geo_confidence", 0.0),
         })
     return {"ok": True, "samples": out, "total": len(out)}
+
+
+@router.post("/samples/bulk_delete")
+async def bulk_delete_samples(body: dict | None = None):
+    """批量删除样本记录。body: {ids: [1, 2, 3]}"""
+    ids = [int(x) for x in (body or {}).get("ids", []) if str(x).strip().isdigit()]
+    if not ids:
+        return {"ok": False, "error": "未提供有效 ID", "deleted": 0}
+    deleted = await token_store.bulk_delete_samples(ids)
+    return {"ok": True, "deleted": deleted}
 
 
 @router.get("/formulas")

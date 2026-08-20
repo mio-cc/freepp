@@ -5,6 +5,9 @@ REST:
 - GET  /api/billing/templates  - 返回全部账单模板
 - GET  /api/billing/countries  - 返回支持的国家列表
 - POST /api/config/stage       - 更新单段配置 (前端可编辑)
+- GET  /api/config/secrets     - 返回密钥/凭据 (secrets.json + config.yaml 标量)
+- POST /api/config/secrets     - 更新密钥/凭据 (写 secrets.json + env 注入 + 热重载)
+- POST /api/config/section     - 通用写回 config.yaml 顶层段 (server/stripe/tls/proxy/...)
 """
 from __future__ import annotations
 
@@ -12,6 +15,7 @@ from fastapi import APIRouter
 
 from core.config import settings
 from core.billing import BILLING_TEMPLATES, ALL_COUNTRIES, PAYPAL_BLOCKED, AREA_CODES, GEO
+from core.secrets_store import secrets_store
 
 router = APIRouter(prefix="/api", tags=["config"])
 
@@ -64,6 +68,7 @@ async def get_config():
             "default_pool": settings.default_pool_name,
             "health_check_interval": settings.health_check_interval,
             "max_concurrent_per_node": settings.max_concurrent_per_node,
+            "sess_time": settings.proxy_sess_time,
             "qg_super_pool": _mask_pool(settings.qg_pool("qg_super_pool")),
             "qg_resi_pool": _mask_pool(settings.qg_pool("qg_resi_pool")),
             "proxy_711": settings.proxy_cfg.get("proxy_711", {}),
@@ -92,6 +97,25 @@ async def get_config():
                 "redirect 匹配 pm-redirects.stripe.com/authorize/",
                 "最终 URL 匹配 paypal.com/agreements/approve?ba_token=",
             ],
+        },
+        # 以下为「密钥与凭据」页所需、原 GET /api/config 缺失的段 (补齐)
+        "geo": {
+            "enabled": settings.geo_cfg.get("enabled", True),
+            "timeout": settings.geo_cfg.get("timeout", 10),
+            "sources": settings.geo_cfg.get("sources", []),
+        },
+        "register_pool": {
+            "base_url": settings.register_pool.get("base_url", ""),
+            "timeout": settings.register_pool.get("timeout", 15),
+        },
+        "storage": {
+            "db_path": settings.storage.get("db_path", "tokens.db"),
+            "samples_dir": settings.storage.get("samples_dir", "samples"),
+            "runs_dir": settings.storage.get("runs_dir", "runs"),
+        },
+        "logging": {
+            "level": settings.logging_cfg.get("level", "INFO"),
+            "json_logs": settings.logging_cfg.get("json_logs", False),
         },
     }
 
@@ -258,7 +282,7 @@ async def update_branch_config(body: dict):
     for key in ("label", "channel", "token_source"):
         if key in body:
             branch_cfg[key] = str(body[key])
-    for key in ("require_zero", "channel_check", "dual_init", "follow_checkout"):
+    for key in ("require_zero", "channel_check", "dual_init", "follow_checkout", "channel_probe"):
         if key in body:
             branch_cfg[key] = bool(body[key])
     for key in ("init0_ccs", "init1_ccs", "init_t_ccs"):
@@ -272,6 +296,10 @@ async def update_branch_config(body: dict):
         branch_cfg["billing_country"] = "auto" if bc in ("AUTO", "") else bc
     if "attempts" in body:
         branch_cfg["attempts"] = max(1, int(body["attempts"]))
+    if "checkout_mode" in body:
+        cm = str(body["checkout_mode"] or "auto").strip().lower()
+        valid_modes = ("auto", "host_inline", "host_no_inline", "cust_inline", "cust_no_inline")
+        branch_cfg["checkout_mode"] = cm if cm in valid_modes else "auto"
 
     # 七段配置
     stages = body.get("stages")
@@ -303,3 +331,186 @@ async def update_branch_config(body: dict):
 
     settings.reload()
     return {"ok": True, "branch": branch_name, "config": settings.branch_dict(branch_name)}
+
+
+# ── 密钥与凭据页 (secrets) ──────────────────────────────────────────
+
+# POST /api/config/section 可写回的顶层段白名单 + 每段允许字段 + 类型转换
+# 复用 update_stage_config 的 yaml load/dump/reload 写回模式
+_SECTION_SCHEMA: dict[str, dict[str, type]] = {
+    "server": {
+        "host": str, "port": int, "max_concurrent_chains": int,
+        "thread_pool_size": int, "chain_mode": str,
+        "mock_success_rate": float, "mock_stage_min": float, "mock_stage_max": float,
+    },
+    "stripe": {
+        "init_version": str, "runtime_version": str,
+        "checkout_url": str, "approve_url": str, "pm_url": str,
+        "init_url_tmpl": str, "update_url_tmpl": str, "confirm_url_tmpl": str, "poll_url_tmpl": str,
+    },
+    "tls": {
+        "impersonate": str, "user_agent": str, "accept_language": str,
+    },
+    "proxy": {
+        "default_pool": str, "health_check_interval": int,
+        "max_concurrent_per_node": int, "sess_time": int,
+    },
+    "register_pool": {
+        "base_url": str, "timeout": int,
+    },
+    "storage": {
+        "db_path": str, "samples_dir": str, "runs_dir": str,
+    },
+    "geo": {
+        "enabled": bool, "timeout": int, "sources": list,
+    },
+    "logging": {
+        "level": str, "json_logs": bool,
+    },
+    "momo": {
+        "enabled": bool, "connect_intercept": bool, "dns_fix": bool,
+        "pm_inject": bool, "confirm_build": bool, "resolve_regex": bool,
+    },
+}
+
+
+def _coerce(val, typ: type):
+    """按 schema 类型转换入参值 (失败返回 None 表示跳过该字段)。
+
+    注意: bool False 是合法值, 不能被当作"空"丢弃; 调用方区分 None(跳过) 与 False(写入)。
+    """
+    try:
+        if typ is bool:
+            if isinstance(val, bool):
+                return val
+            return str(val).strip().lower() in ("1", "true", "yes", "on", "y")
+        if val is None or val == "":
+            return None
+        if typ is int:
+            return int(val)
+        if typ is float:
+            return float(val)
+        if typ is list:
+            if isinstance(val, str):
+                return [s.strip() for s in val.split(",") if s.strip()]
+            return list(val)
+        return str(val)
+    except (ValueError, TypeError):
+        return None
+
+
+@router.post("/config/section")
+async def update_config_section(body: dict):
+    """通用写回 config.yaml 顶层段 (server/stripe/tls/proxy/register_pool/storage/geo/logging/momo)。
+
+    body: {section: "server", fields: {host: "0.0.0.0", port: 8770, ...}}
+    代理 QG 池凭据用 section="proxy" 下的 qg_super_pool/qg_resi_pool 子对象。
+    """
+    section = body.get("section")
+    fields = body.get("fields")
+    if not section or section not in _SECTION_SCHEMA:
+        return {"ok": False, "error": f"无效段: {section}, 可选 {list(_SECTION_SCHEMA.keys())}"}
+    if not isinstance(fields, dict):
+        return {"ok": False, "error": "fields 必须是对象"}
+
+    import yaml
+    config_path = settings.path
+    with open(config_path, "r", encoding="utf-8") as f:
+        config_data = yaml.safe_load(f) or {}
+
+    sec_cfg = config_data.setdefault(section, {})
+    if not isinstance(sec_cfg, dict):
+        sec_cfg = {}
+        config_data[section] = sec_cfg
+
+    schema = _SECTION_SCHEMA[section]
+    changed = {}
+    for fld, val in fields.items():
+        # proxy 段特例: qg_super_pool / qg_resi_pool 子对象 (含 auth_key/auth_pwd/host/port)
+        if section == "proxy" and fld in ("qg_super_pool", "qg_resi_pool"):
+            sub = val if isinstance(val, dict) else {}
+            cur_sub = sec_cfg.setdefault(fld, {})
+            if not isinstance(cur_sub, dict):
+                cur_sub = {}
+                sec_cfg[fld] = cur_sub
+            for k in ("host", "port", "auth_key", "auth_pwd"):
+                if k in sub and sub[k] is not None:
+                    cv = sub[k]
+                    if k == "port":
+                        try:
+                            cv = int(cv)
+                        except (ValueError, TypeError):
+                            continue
+                    elif k != "host" and cv is not None:
+                        cv = str(cv)
+                    cur_sub[k] = cv
+            changed[fld] = cur_sub
+            continue
+
+        if fld not in schema:
+            continue
+        fld_type = schema[fld]
+        cv = _coerce(val, fld_type)
+        # None 表示空值/转换失败: bool 跳过 (False 是合法值已返回), 其余跳过该字段
+        if cv is None and not (fld_type is bool and isinstance(val, bool)):
+            continue
+        sec_cfg[fld] = cv
+        changed[fld] = cv
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(config_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+    settings.reload()
+    return {"ok": True, "section": section, "changed": list(changed.keys())}
+
+
+@router.get("/config/secrets")
+async def get_secrets():
+    """返回密钥/凭据页全部数据 (不脱敏 — 离线项目, 前端需展示原值供编辑)。
+
+    secrets:  secrets.json 全字段 (711/api798/sms/paypal_antibot) 原值
+    proxy_pools: config.yaml 代理池凭据原值 (qg_super_pool/qg_resi_pool, 不脱敏)
+    """
+    return {
+        "ok": True,
+        "secrets": secrets_store.get_all(),
+        "proxy_pools": {
+            "qg_super_pool": settings.qg_pool("qg_super_pool"),
+            "qg_resi_pool": settings.qg_pool("qg_resi_pool"),
+            "default_pool": settings.default_pool_name,
+        },
+    }
+
+
+@router.post("/config/secrets")
+async def update_secrets(body: dict):
+    """更新密钥/凭据 (写 secrets.json + 注入 os.environ + 热重载模块常量)。
+
+    body: {section: "seven11", fields: {PROXY_711_USER: "...", ...}}
+    section ∈ {seven11, api798, sms, paypal_antibot}
+    """
+    section = body.get("section")
+    fields = body.get("fields")
+    if not isinstance(fields, dict):
+        return {"ok": False, "error": "fields 必须是对象"}
+    return secrets_store.update(section or "", fields)
+
+
+@router.get("/config/email_domains")
+async def get_email_domains():
+    """返回邮箱域名池配置 (用户配置 + 内置默认)。"""
+    from core.email_domains_store import email_domains_store
+    return {"ok": True, **email_domains_store.get_all()}
+
+
+@router.post("/config/email_domains")
+async def update_email_domains(body: dict | None = None):
+    """更新邮箱域名池配置。body: {by_country?: {US: [...]}, fallback?: [...], reset?: true}"""
+    from core.email_domains_store import email_domains_store
+    body = body or {}
+    if body.get("reset"):
+        return {"ok": True, **email_domains_store.reset()}
+    return {"ok": True, **email_domains_store.update(
+        by_country=body.get("by_country"),
+        fallback=body.get("fallback"),
+    )}

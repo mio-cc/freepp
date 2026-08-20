@@ -180,6 +180,17 @@ def delete_account(conn, account_id: int) -> bool:
     return cur.rowcount > 0
 
 
+def bulk_delete_accounts(conn, account_ids: list[int]) -> int:
+    """批量删除注册账号，返回实际删除条数。"""
+    if not account_ids:
+        return 0
+    placeholders = ",".join("?" * len(account_ids))
+    cur = conn.execute(
+        f"DELETE FROM reg_accounts WHERE id IN ({placeholders})", account_ids)
+    conn.commit()
+    return cur.rowcount
+
+
 def stats(conn) -> dict:
     rows = conn.execute(
         """SELECT

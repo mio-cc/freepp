@@ -2,9 +2,9 @@ import { create } from "zustand";
 import type {
   Token, ProxyNode, ChainState, Stats, Sample,
   InventoryRecord, LogEntry, ViewName, WSEvent, StageName, StageData, BranchName,
-  BAFeedItem, BABaSnap, BAAuthRecord,
+  BAFeedItem, BABaSnap, BAAuthRecord, Traffic,
 } from "../types";
-import { STAGE_ORDER } from "../types";
+import { STAGE_ORDER, baStepCn } from "../types";
 
 const LOG_MAX = 1000;
 const BA_FEED_MAX = 300;
@@ -13,6 +13,10 @@ interface StoreState {
   /* ── 导航 ── */
   currentView: ViewName;
   setView: (v: ViewName) => void;
+
+  /* ── 主题 (light|dark|system, 暗色别名挂在 html[data-theme], 由 useTheme hook 同步) ── */
+  theme: "light" | "dark" | "system";
+  setTheme: (t: "light" | "dark" | "system") => void;
 
   /* ── 提链分支 ── */
   activeBranch: BranchName;
@@ -28,10 +32,12 @@ interface StoreState {
   chainStates: Record<string, ChainState>;
   stats: Stats;
   latencies: number[];
+  traffic: Traffic;
   inventory: InventoryRecord[];
   inventoryLoaded: boolean;
   samples: { success: Sample[]; failure: Sample[] };
   samplesLoaded: { success: boolean; failure: boolean };
+  samplesError: { success: string; failure: string };
   sampleTab: "success" | "failure";
   logLines: LogEntry[];
 
@@ -77,6 +83,9 @@ export const useStore = create<StoreState>((set, get) => ({
   currentView: "overview",
   setView: (v) => set({ currentView: v }),
 
+  theme: "dark",
+  setTheme: (t) => set({ theme: t }),
+
   activeBranch: "paypal",
   setActiveBranch: (b) => set({ activeBranch: b }),
 
@@ -88,10 +97,12 @@ export const useStore = create<StoreState>((set, get) => ({
   chainStates: {},
   stats: { success: 0, failure: 0, byCountry: {}, failByCountry: {}, reasons: {}, stageMatrix: {} },
   latencies: [],
+  traffic: { register: { up: 0, down: 0 }, chain: { up: 0, down: 0 }, pay: { up: 0, down: 0 }, detect: { up: 0, down: 0 } },
   inventory: [],
   inventoryLoaded: false,
   samples: { success: [], failure: [] },
   samplesLoaded: { success: false, failure: false },
+  samplesError: { success: "", failure: "" },
   sampleTab: "success",
   logLines: [],
 
@@ -138,11 +149,12 @@ export const useStore = create<StoreState>((set, get) => ({
         error: r.error,
         source: r.source || "",
         last_msg: r.last_msg || "",
+        last_level: r.last_level || "info",
       });
       if (r.status === "running") {
         items.push({
           ts: now, token: key, level: "info",
-          msg: `监控恢复 · 授权中 · ${r.step === "submit_email" ? "提交邮箱" : r.step}`,
+          msg: `监控恢复 · 授权中 · ${baStepCn(r.step)}`,
         });
       } else if (r.status === "success") {
         items.push({ ts: now, token: key, level: "ok", msg: "授权成功 ✓" });
@@ -165,6 +177,7 @@ export const useStore = create<StoreState>((set, get) => ({
         if (evt.inventory) { patch.inventory = evt.inventory; patch.inventoryLoaded = true; }
         if (evt.qg_pool) patch.qgPool = evt.qg_pool;
         if (evt.latencies) patch.latencies = evt.latencies;
+        if (evt.traffic) patch.traffic = evt.traffic;
         if (evt.running !== undefined) {
           patch.batchRunning = evt.running;
           patch.runStartTime = evt.running ? Date.now() : 0;
@@ -395,6 +408,10 @@ export const useStore = create<StoreState>((set, get) => ({
         if (evt.stats) set({ stats: evt.stats });
         break;
       }
+      case "traffic_update": {
+        if (evt.traffic) set({ traffic: evt.traffic });
+        break;
+      }
       case "proxy_health": {
         set({ nodes: evt.nodes || [] });
         s.pushLog(`健康检查完成，${(evt.nodes || []).length} 个节点`, "info");
@@ -434,6 +451,52 @@ export const useStore = create<StoreState>((set, get) => ({
       }
       case "probe_progress": {
         set({ probeProgress: { done: evt.done || 0, total: evt.total || 0 } });
+        break;
+      }
+      // ---- 注册段进度 (reg/engine.py _emit → WebSocket broadcast) ----
+      case "reg_start": {
+        s.pushLog(`注册开始 — ${evt.total || "?"} 个账号, 渠道 ${evt.email_mode || "?"}`, "info");
+        break;
+      }
+      case "reg_log": {
+        const regStage = evt.stage || "engine";
+        s.pushLog(`[注册] ${regStage}: ${evt.message || ""}`, "info");
+        break;
+      }
+      case "reg_progress": {
+        const regIdx = evt.index || 0, regTotal = evt.total || 0;
+        s.pushLog(
+          `[注册] ${regIdx}/${regTotal} ${evt.ok ? "✓" : "✗"} (成功 ${evt.success || 0} / 失败 ${evt.failed || 0})`,
+          evt.ok ? "ok" : "err",
+        );
+        break;
+      }
+      case "reg_complete": {
+        s.pushLog(
+          `注册完成: 成功 ${evt.success || 0} / 失败 ${evt.failed || 0}${evt.stopped ? " (已停止)" : ""}`,
+          "info",
+        );
+        break;
+      }
+      case "reg_error": {
+        s.pushLog(`注册异常: ${evt.message || ""}`, "err");
+        break;
+      }
+      // ---- 支付段进度 (paypal.py _run_authorize_task → WebSocket broadcast) ----
+      case "ba_imported": {
+        s.pushLog(`[支付] 新 BA 入队: ${evt.ba_token || ""} (${evt.email || ""})`, "info");
+        break;
+      }
+      case "ba_progress": {
+        s.pushLog(`[支付] ${evt.ba_token || ""} ▷ ${evt.step || ""}: ${evt.msg || ""}`, evt.level === "err" ? "err" : evt.level === "warn" ? "warn" : "info");
+        break;
+      }
+      case "ba_success": {
+        s.pushLog(`[支付] ✓ 授权成功: ${evt.ba_token || ""} (${evt.email || ""})`, "ok");
+        break;
+      }
+      case "ba_failed": {
+        s.pushLog(`[支付] ✗ 授权失败: ${evt.ba_token || ""} — ${evt.error || ""}`, "err");
         break;
       }
       default:

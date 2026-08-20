@@ -232,10 +232,12 @@ def build_common_headers(state: SessionState | None = None) -> dict[str, str]:
     ) or BROWSER_PROFILE)
     user_agent = str(profile.get("user_agent") or USER_AGENT)
     language = str(profile.get("language") or "pt-BR")
+    # 第二语言跟随 profile 主语言 (BR 仍为 pt), 不再对所有国家硬塞葡萄牙语
+    lang_primary = language.split("-")[0]
     return {
         "User-Agent": user_agent,
         "Accept": "*/*",
-        "Accept-Language": f"{language},pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Language": f"{language},{lang_primary};q=0.9,en-US;q=0.8,en;q=0.7",
         "sec-ch-ua": _format_sec_ch_ua(_low_entropy_ua_brands(profile)),
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": str(profile.get("sec_ch_platform") or '"Linux"'),
@@ -1122,6 +1124,11 @@ class PayPalSession:
         if self._use_curl:
             kwargs = self._prepare_curl_kwargs(kwargs)
         resp = self._request_with_retry("GET", url, kwargs, req_id)
+        try:
+            from core import traffic as _traffic
+            _traffic.record_response(resp)
+        except Exception:
+            pass
         self._check_accept_ch(resp)
         self._sync_state_cookies()
         self._sync_state_response_headers(resp)
@@ -1216,6 +1223,11 @@ class PayPalSession:
                     multipart.close()
                 except Exception:
                     pass
+        try:
+            from core import traffic as _traffic
+            _traffic.record_response(resp)
+        except Exception:
+            pass
         self._check_accept_ch(resp)
         self._sync_state_cookies()
         self._sync_state_response_headers(resp)

@@ -124,7 +124,14 @@ def _req(session, method: str, url: str, **kw):
     last = None
     for v in attempts:
         try:
-            return session.request(method, url, verify=v, **kw)
+            r = session.request(method, url, verify=v, **kw)
+            # 代理流量统计: 从 threadlocal 读取当前功能块
+            try:
+                from core.traffic import record_response
+                record_response(r)
+            except Exception:
+                pass
+            return r
         except Exception as exc:
             last = exc
             low = f"{type(exc).__name__}:{exc}".lower()
@@ -994,6 +1001,9 @@ class ChainResult:
         self.error_stage: str = ""
         self.requires_reconciliation: bool = False
         self.side_effect_started: bool = False
+        # 代理流量统计 (本链路累计上传/下传字节)
+        self.upload_bytes: int = 0
+        self.download_bytes: int = 0
 
     def to_protocol_result(self, payment_method: str = "") -> dict[str, Any]:
         """转换为 ProtocolResult 契约 dict (带脱敏)。"""
@@ -1049,8 +1059,9 @@ class AsyncChain:
         self.oaics_mode: bool = False
         self._oaics_device_id: str = ""
         self._oaics_cookie_jar: dict[str, str] = {}
-        # 提链前探测分流: 探测为 oaics 时强制只走 oaics 五段, 建出非 oaics 会话直接失败, 不降级
-        self._oaics_only: bool = False
+        self._t0: float = 0.0  # execute 起始时间, _finish_failure 计算耗时用
+        # 2026-08-18: 移除 _oaics_only 禁止降级策略 — 建单失败或建出 cs_live_ 会话
+        # 一律兜底降级走七段主链 (cs 类型兜底), 不再按历史 oaics 拒绝降级
         # =====================================================================
         # 【已废弃】S0 独立会话类型探测段 (2026-08-14 移除):
         #   原流程: execute 开头用 checkout 段 IP 额外建单探测会话类型 (oaics/cs_live),
@@ -1068,6 +1079,9 @@ class AsyncChain:
         # 同国复用: 后段同国家直接复用前段 sticky session (同 IP), 不抽新 IP
         self._proxy_by_country: dict[str, str] = {}  # country -> proxy_url
         self._geo_by_proxy: dict[str, dict] = {}    # proxy_url -> 探测结果 (同 IP 不重复探测)
+        # 本链领用过的 sing-box 节点代理(去重), 链结束时统一 release() 归还并发计数,
+        # 防止 node["concurrent"] 只增不减致节点假饱和 (见 proxy_pool.release)。
+        self._picked_proxies: set[str] = set()
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -1080,12 +1094,25 @@ class AsyncChain:
 
     async def _run_in_executor(self, fn, *args, **kwargs):
         loop = asyncio.get_event_loop()
+        # 设置线程局部流量分块为 chain (提链), 使 _req 内的流量统计归类正确
+        from core import traffic as _traffic
+        def _run():
+            prev = _traffic.get_block()
+            _traffic.set_block(_traffic.BLOCK_CHAIN)
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                _traffic.set_block(prev)
         if self.executor:
-            return await loop.run_in_executor(self.executor, lambda: fn(*args, **kwargs))
-        return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
+            return await loop.run_in_executor(self.executor, _run)
+        return await loop.run_in_executor(None, _run)
 
-    def _pick_proxy(self, stage: str, country: str | None = None) -> str:
+    def _pick_proxy(self, stage: str, country: str | None = None) -> tuple[str, bool]:
         """为某段链路选代理：live 模式下经代理池选 711/节点/QG，mock 返回空。
+
+        返回 (proxy_url, is_fresh):
+          - is_fresh=True  本次新抽(已 +1 节点并发), 调用方须在段结束时 release() 归还;
+          - is_fresh=False 复用同国 sticky 缓存(未占用新计数), 调用方不应 release()。
 
         同国家复用: 同一国已抽过代理(sticky session)，后续同国段直接复用同 IP，
         不重新抽取新 IP。
@@ -1093,17 +1120,23 @@ class AsyncChain:
         压 0 注入 promo 必须用独立出口 IP，故不走复用缓存。
         """
         if settings.chain_mode != "live" or not _HAS_CURL:
-            return ""
+            return "", False
         key = (country or "").upper()
         if stage != "update" and key and key in self._proxy_by_country:
-            return self._proxy_by_country[key]
+            return self._proxy_by_country[key], False
         try:
             proxy_url = proxy_pool.pick_for_stage(stage, country)
         except Exception:
-            return ""
+            return "", False
         if stage != "update" and key and proxy_url:
             self._proxy_by_country[key] = proxy_url
-        return proxy_url
+        if proxy_url:
+            self._picked_proxies.add(proxy_url)  # 链结束统一释放 (release 仅对 sing-box 节点生效)
+        return proxy_url, True
+
+    def _pick_proxy_url(self, stage: str, country: str | None = None) -> str:
+        """便捷包装: 仅返回代理 URL (供显式传 proxy 的段调用, 不涉及计数释放)。"""
+        return self._pick_proxy(stage, country)[0]
 
     # ------------------------------------------------------------------
     # 单段执行（mock + live 统一入口）
@@ -1194,7 +1227,16 @@ class AsyncChain:
                 if settings.chain_mode == "live" and _HAS_CURL:
                     live_args = list(args)
                     if live_args and live_args[0] is None:
-                        proxy = self._pick_proxy(stage, country)
+                        proxy, is_fresh = self._pick_proxy(stage, country)
+                        # fail-closed: live 模式抽不到代理则中止本段, 绝不裸连泄露真实 IP。
+                        # (mock 模式 / 代理已显式传入的段不在此列)
+                        if not proxy:
+                            last_err = f"no_proxy_available: {stage} 段代理池耗尽, 已中止避免裸连"
+                            evt_fail = {"type": "stage_fail", "stage": display,
+                                        "country": country, "detail": last_err[:300]}
+                            await self._emit(self._geo_evt(evt_fail))
+                            self._stage_states[stage] = {"state": "fail", "country": country}
+                            raise ChainStageError(fail_reason, last_err)
                         live_args[0] = proxy
                         await self._probe_stage(display, country, proxy)
                 evt_try = {"type": "stage_try", "stage": display, "country": country,
@@ -1351,7 +1393,7 @@ class AsyncChain:
         }
         provider_country = self.pick_oaics.get("provider", country)
         confirm_country = self.pick_oaics.get("confirm", country)
-        pm_proxy = self._pick_proxy("provider", provider_country)
+        pm_proxy = self._pick_proxy_url("provider", provider_country)
         device_id = device_id or str(uuid.uuid4())
 
         def mint_sentinel(flow: str, did: str, page_url: str = "",
@@ -1364,7 +1406,7 @@ class AsyncChain:
 
         # S2 账单 (fetch state + taxes + 0 元轮询); taxes 段出口即本段出口, provider 后续复用独立段
         taxes_country = self.pick_oaics.get("taxes", "US")
-        taxes_proxy = self._pick_proxy("taxes", taxes_country)
+        taxes_proxy = self._pick_proxy_url("taxes", taxes_country)
         await self._probe_stage("taxes", taxes_country, taxes_proxy)
         await self._emit(self._geo_evt({"type": "stage_try", "stage": "taxes",
                                         "country": taxes_country, "try_n": 1, "max_try": 1}))
@@ -1596,7 +1638,7 @@ class AsyncChain:
         # S5 resolve (跟随跳转链提取 BA 链接)
         resolve_country = self.pick_oaics.get("resolve", country)
         final_url = await self._run_in_executor(
-            stage_resolve_live, self._pick_proxy("resolve", resolve_country),
+            stage_resolve_live, self._pick_proxy_url("resolve", resolve_country),
             redirect, None, self.branch_name)
         if not final_url:
             await self._emit(self._geo_evt({"type": "stage_fail", "stage": "resolve",
@@ -1637,6 +1679,7 @@ class AsyncChain:
     # ------------------------------------------------------------------
     async def execute(self) -> ChainResult:
         t0 = time.monotonic()
+        self._t0 = t0
         try:
             await self._emit({"type": "chain_start", "email": self.email,
                               "token_sub": self.token.get("sub", ""), "attempt": self.attempt})
@@ -1651,14 +1694,27 @@ class AsyncChain:
             # cs_live_ -> 七段主链; token.session_type 历史值仅用于"不降级"语义兜底。
 
             # S1 checkout (billing_details 用账单国+币种; 出口代理按 pick 国家)
+            # checkout_mode 配置 (2026-08-19): 手动指定 checkout 建单的 ui_mode + promo_inline 组合。
+            # auto = 原项目逻辑 (各 detected 分支按既有判断); 其它模式强制覆盖 cs_live_ 七段路径的
+            # checkout 参数。oaics_ 会话由服务端下发时仍自动走 oaics 五段, 不受此配置影响。
+            _cm = str(self.branch_cfg.checkout_mode or "auto").strip().lower()
+            if _cm not in ("auto", "host_inline", "host_no_inline", "cust_inline", "cust_no_inline"):
+                _cm = "auto"
+            # _forced_ui_mode/_forced_promo_inline: None=保持原逻辑, 否则强制覆盖
+            _forced_ui_mode: str | None = None
+            _forced_promo_inline: bool | None = None
+            if _cm != "auto":
+                _forced_ui_mode = "custom" if _cm.startswith("cust_") else "hosted"
+                _forced_promo_inline = _cm.endswith("_inline")
             # paypal 会话类型分流 (2026-08-14 起无 S0 独立探测段, 用 S1 建单结果 + 历史
             # session_type 兜底; 历史 S0 探测字段已废弃, 见 __init__ 注释):
-            #   oaics   -> 只用 oaics 配置 (oaics 账单国 + custom 建单), 建出非 oaics 会话直接失败, 不降级
+            #   oaics   -> 只用 oaics 配置 (oaics 账单国 + custom 建单), 走 oaics 五段
             #   cs_live -> 直接走七段主链 (七段账单国 + hosted 建单), 不尝试 oaics
-            #   未标注   -> 保持原行为: 先 custom 尝试, 建出非 oaics 再回退七段主链
+            #   未标注   -> 先 custom 尝试, 建出 oaics 走 oaics 五段
+            # cs 类型兜底 (2026-08-18): 任一分支建单失败或建出 cs_live_ 会话时, 均
+            # 降级 hosted 建单并直接走七段主链, 不再按历史 oaics 拒绝降级
             if self.branch_name == "paypal":
                 detected = self._detected_session or str(self.token.get("session_type") or "").strip().lower()
-                self._oaics_only = detected == "oaics"
                 if detected == "oaics":
                     # 【已废弃】_probe_billing_cc/_probe_currency 来自 S0 探测段 (已移除),
                     # 恒为空, 此分支仅保留语义兼容 (账单国跟随 pick_oaics 默认值)。
@@ -1673,27 +1729,55 @@ class AsyncChain:
                         "checkout", stage_checkout_live,
                         None, self.access_token, self.session_token, billing_cc, currency,
                         self.branch_name,
+                        _forced_promo_inline if _forced_promo_inline is not None else False,
+                        _forced_ui_mode if _forced_ui_mode is not None else "hosted",
+                        None, None, "",
                         fail_reason="checkout_failed")
                 else:
-                    # oaics / 未探测: oaics 账单国 + custom 建单 (oaics_only 时禁止降级)
+                    # oaics / 未探测: 先 custom 建单 (oaics 会话偏好); 建单失败
+                    # (返回非 2xx 或异常) 时兜底改 hosted 建单 (cs 类型)
                     billing_cc = self.pick_oaics.get("_billing", billing_cc)
                     currency = self.pick_oaics.get("_currency", currency)
                     self._oaics_device_id = str(uuid.uuid4())
                     self._oaics_cookie_jar = {}
-                    checkout_proxy = self._pick_proxy("checkout", country)
+                    checkout_proxy = self._pick_proxy_url("checkout", country)
                     create_sentinel = await self._run_in_executor(
                         self._oaics_mint_sentinel, "chatgpt_checkout",
                         "https://chatgpt.com/", checkout_proxy)
-                    co = await self._run_stage(
-                        "checkout", stage_checkout_live,
-                        None, self.access_token, self.session_token, billing_cc, currency,
-                        self.branch_name, True, "custom", create_sentinel,
-                        self._oaics_cookie_jar, self._oaics_device_id,
-                        fail_reason="checkout_failed")
+                    # checkout_mode 强制模式: 用 forced 值单次建单, 不走 custom→hosted 兜底;
+                    # auto: 保持原逻辑 (custom+内联 尝试, 失败 hosted 兜底)
+                    if _forced_ui_mode is not None:
+                        co = await self._run_stage(
+                            "checkout", stage_checkout_live,
+                            None, self.access_token, self.session_token, billing_cc, currency,
+                            self.branch_name,
+                            bool(_forced_promo_inline), _forced_ui_mode, create_sentinel,
+                            self._oaics_cookie_jar, self._oaics_device_id,
+                            fail_reason="checkout_failed")
+                    else:
+                        try:
+                            co = await self._run_stage(
+                                "checkout", stage_checkout_live,
+                                None, self.access_token, self.session_token, billing_cc, currency,
+                                self.branch_name, True, "custom", create_sentinel,
+                                self._oaics_cookie_jar, self._oaics_device_id,
+                                fail_reason="checkout_failed")
+                        except ChainStageError:
+                            co = None
+                        if co is None or not co.get("ok"):
+                            # 建单失败兜底: 改 hosted 建单 (cs 类型), 成功即走七段主链
+                            co = await self._run_stage(
+                                "checkout", stage_checkout_live,
+                                None, self.access_token, self.session_token, billing_cc, currency,
+                                self.branch_name,
+                                fail_reason="checkout_failed")
             else:
                 co = await self._run_stage("checkout", stage_checkout_live,
                                            None, self.access_token, self.session_token, billing_cc, currency,
                                            self.branch_name,
+                                           _forced_promo_inline if _forced_promo_inline is not None else False,
+                                           _forced_ui_mode if _forced_ui_mode is not None else "hosted",
+                                           None, None, "",
                                            fail_reason="checkout_failed")
             if settings.chain_mode == "live" and _HAS_CURL:
                 if not co.get("ok"):
@@ -1708,50 +1792,10 @@ class AsyncChain:
                 pk = co["publishable_key"]
                 entity = "openai_llc"
             if self.branch_name == "paypal" and not str(cs or "").startswith("oaics_"):
-                if self._oaics_only:
-                    # 历史 oaics 但本次建出非 oaics 会话: 不降级, 换 IP 重新建单重试
-                    # (对齐参考项目 link-pp engine: OaicsCheckoutRequiredError -> 换代理重试,
-                    #  直到 attempts 耗尽才失败)
-                    retry_limit = max(1, int(self.options.get("attempts")
-                                             or self.branch_cfg.attempts or 8))
-                    retry_n = 0
-                    while retry_n < retry_limit and not str(cs or "").startswith("oaics_"):
-                        retry_n += 1
-                        self._stage_states.clear()
-                        self.result = ChainResult()
-                        self.result.email = self.email
-                        self.result.token_id = self.token.get("id", "")
-                        checkout_proxy = self._pick_proxy("checkout", country)
-                        create_sentinel = await self._run_in_executor(
-                            self._oaics_mint_sentinel, "chatgpt_checkout",
-                            "https://chatgpt.com/", checkout_proxy)
-                        co = await self._run_stage(
-                            "checkout", stage_checkout_live,
-                            None, self.access_token, self.session_token, billing_cc, currency,
-                            self.branch_name, True, "custom", create_sentinel,
-                            self._oaics_cookie_jar, self._oaics_device_id,
-                            fail_reason="checkout_failed")
-                        cs = co.get("checkout_session_id") or ""
-                        if str(cs or "").startswith("oaics_"):
-                            pk = co.get("publishable_key") or ""
-                            entity = co.get("processor_entity") or (
-                                "openai_llc" if country == "US" else "openai_ie")
-                            self.result.country = country
-                            self.result.stage_reached = "checkout"
-                            break
-                    if not str(cs or "").startswith("oaics_"):
-                        # 重试耗尽仍非 oaics: 按历史判定不降级, 失败
-                        self.result.reason_code = "oaics_session_mismatch"
-                        self.result.reason_text = (
-                            f"历史 oaics 但重试 {retry_n} 次仍建出非 oaics 会话: {str(cs or '')[:24]}")
-                        self.result.stage_reached = "checkout"
-                        await self._finish_failure()
-                        return self.result
-                else:
-                    # 降级路径: 会话为 cs_live_ (账号无 custom checkout), 同步该会话账单
-                    # 保证 update 压0 与 create 账单一致
-                    self.pick["_billing"] = billing_cc
-                    self.pick["_currency"] = currency
+                # 建出 cs_live_ 会话: 直接走七段主链 (cs 类型兜底, 不再按历史 oaics
+                # 拒绝降级/换 IP 重试)。同步该会话账单, 保证 update 压0 与 create 账单一致
+                self.pick["_billing"] = billing_cc
+                self.pick["_currency"] = currency
             self.result.country = country
             self.result.stage_reached = "checkout"
 
@@ -1794,26 +1838,41 @@ class AsyncChain:
                 self.result = ChainResult()
                 self.result.email = self.email
                 self.result.token_id = self.token.get("id", "")
-                checkout_proxy = self._pick_proxy("checkout", country)
+                checkout_proxy = self._pick_proxy_url("checkout", country)
                 create_sentinel = await self._run_in_executor(
                     self._oaics_mint_sentinel, "chatgpt_checkout",
                     "https://chatgpt.com/", checkout_proxy)
-                co = await self._run_stage(
-                    "checkout", stage_checkout_live,
-                    None, self.access_token, self.session_token, billing_cc, currency,
-                    self.branch_name, True, "custom", create_sentinel,
-                    self._oaics_cookie_jar, self._oaics_device_id,
-                    fail_reason="checkout_failed")
-                if self.branch_name != "paypal" or not str(co.get("checkout_session_id") or "").startswith("oaics_"):
-                    if self._oaics_only:
-                        # 探测为 oaics: 重试后建出的仍非 oaics 会话, 直接失败不降级
-                        self.result.reason_code = "oaics_session_mismatch"
-                        self.result.reason_text = (
-                            f"oaics 流程重试后建出非 oaics 会话: {str(co.get('checkout_session_id') or '')[:24]}")
-                        self.result.stage_reached = "checkout"
-                        await self._finish_failure()
-                        return self.result
+                try:
+                    co = await self._run_stage(
+                        "checkout", stage_checkout_live,
+                        None, self.access_token, self.session_token, billing_cc, currency,
+                        self.branch_name,
+                        bool(_forced_promo_inline) if _forced_promo_inline is not None else True,
+                        _forced_ui_mode if _forced_ui_mode is not None else "custom",
+                        create_sentinel, self._oaics_cookie_jar, self._oaics_device_id,
+                        fail_reason="checkout_failed")
+                except ChainStageError:
+                    co = None
+                if co is None or not co.get("ok"):
+                    # 建单失败兜底: 改 hosted 建单 (cs 类型)
+                    co = await self._run_stage(
+                        "checkout", stage_checkout_live,
+                        None, self.access_token, self.session_token, billing_cc, currency,
+                        self.branch_name,
+                        _forced_promo_inline if _forced_promo_inline is not None else False,
+                        _forced_ui_mode if _forced_ui_mode is not None else "hosted",
+                        None, None, "",
+                        fail_reason="checkout_failed")
+                if not str(co.get("checkout_session_id") or "").startswith("oaics_"):
+                    # 建出 cs_live_ 会话: 兜底降级走七段主链 (会话/密钥换新,
+                    # 不再按历史 oaics 拒绝降级)
                     self.oaics_mode = False
+                    cs = co.get("checkout_session_id") or ""
+                    pk = co.get("publishable_key") or ""
+                    entity = co.get("processor_entity") or (
+                        "openai_llc" if country == "US" else "openai_ie")
+                    self.result.country = country
+                    self.result.stage_reached = "checkout"
                     break
                 cs = co["checkout_session_id"]
                 pk = co["publishable_key"]
@@ -1863,7 +1922,7 @@ class AsyncChain:
                 if settings.chain_mode == "live" and _HAS_CURL:
                     # update 段: 在 update_region 出口对已建 checkout session 注入 promo
                     upd_country = self.pick.get("update", country)
-                    upd_proxy = self._pick_proxy("update", upd_country)
+                    upd_proxy = self._pick_proxy_url("update", upd_country)
                     await self._probe_stage("update", upd_country, upd_proxy)
                     await self._emit(self._geo_evt({"type": "stage_try", "stage": "update",
                                                     "country": upd_country, "try_n": 1, "max_try": 1}))
@@ -1979,7 +2038,7 @@ class AsyncChain:
             self.result.billing_country = billing_country
             try:
                 if settings.chain_mode == "live" and _HAS_CURL:
-                    pm_proxy = self._pick_proxy("provider", provider_country)
+                    pm_proxy = self._pick_proxy_url("provider", provider_country)
                     await self._probe_stage("provider", provider_country, pm_proxy)
                     pm = await self._run_in_executor(
                         stage_payment_method_live, pm_proxy, pk, cs, init, billing_country, ctx,
@@ -2117,7 +2176,7 @@ class AsyncChain:
             if self.branch_name != "paypal" and final_url:
                 gw_proxy = ""
                 if settings.chain_mode == "live" and _HAS_CURL:
-                    gw_proxy = self._pick_proxy("resolve", self.pick["resolve"])
+                    gw_proxy = self._pick_proxy_url("resolve", self.pick["resolve"])
                 try:
                     gw = await self._run_in_executor(follow_gateway_redirect, gw_proxy, final_url)
                     if isinstance(gw, dict):
@@ -2169,9 +2228,19 @@ class AsyncChain:
             self.result.reason_text = f"{type(e).__name__}: {e}"
             await self._finish_failure()
             return self.result
+        finally:
+            # 链结束(成功/失败/取消)统一归还领用的 sing-box 节点并发计数。
+            # release() 仅对 127.0.0.1 节点生效(711/QG 自动忽略), 防计数只增不减致节点假饱和。
+            if self._picked_proxies:
+                for _p in self._picked_proxies:
+                    try:
+                        proxy_pool.release(_p)
+                    except Exception:
+                        pass
+                self._picked_proxies.clear()
 
     async def _finish_failure(self) -> None:
-        self.result.elapsed = time.monotonic() - 0  # 由调用方覆盖
+        self.result.elapsed = time.monotonic() - (self._t0 or time.monotonic())
         self._apply_result_geo()
         self.result.error_stage = self.result.stage_reached or ""
         self.result.retryable = self.result.reason_code in {
@@ -2186,7 +2255,7 @@ class AsyncChain:
             "error_stage": self.result.error_stage,
             "retryable": self.result.retryable,
             "email": self.email,
-            "link_mode": "oaics" if (self.oaics_mode or self._oaics_only) else "cs",
+            "link_mode": "oaics" if self.oaics_mode else "cs",
             **self._result_geo_kw(),
         })
 

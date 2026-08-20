@@ -547,12 +547,31 @@ function collectTokens(o: any, out: CalibItem[]) {
     runChain(ids);
   };
 
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedTokenIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`确认删除选中的 ${ids.length} 个 Token？此操作不可撤销。`)) return;
+    try {
+      const r = await api<{ ok: boolean; deleted?: number; error?: string }>("/api/tokens/bulk_delete", "POST", { ids });
+      if (r?.ok) {
+        pushLog(`批量删除 ${r.deleted || 0} 个 Token`, "ok");
+        clearTokenSelection();
+        const tr = await api("/api/tokens");
+        if (tr && Array.isArray(tr.tokens)) useStore.setState({ tokens: tr.tokens });
+      } else {
+        pushLog(`批量删除失败: ${r?.error || "未知"}`, "err");
+      }
+    } catch (e) {
+      pushLog("批量删除失败: " + (e as Error).message, "err");
+    }
+  };
+
   const handleRunOne = (t: Token) => {
     runChain([t.id]);
   };
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h2 className="page-title">Token 库</h2>
@@ -562,8 +581,7 @@ function collectTokens(o: any, out: CalibItem[]) {
         </div>
         <div className="page-actions">
           <select
-            className="select"
-            style={{ width: 200 }}
+            className="select flex-field-sm"
             value={sourceFilter}
             onChange={(e) => {
               const v = e.target.value;
@@ -578,15 +596,13 @@ function collectTokens(o: any, out: CalibItem[]) {
             ))}
           </select>
           <input
-            className="input"
-            style={{ width: 200 }}
+            className="input flex-field"
             placeholder="搜索 email / sub / account_id"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <select
-            className="select"
-            style={{ width: 110 }}
+            className="select flex-field-sm"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
@@ -597,8 +613,7 @@ function collectTokens(o: any, out: CalibItem[]) {
             ))}
           </select>
           <select
-            className="select"
-            style={{ width: 130 }}
+            className="select flex-field-sm"
             value={tagFilter}
             onChange={(e) => setTagFilter(e.target.value)}
           >
@@ -669,6 +684,13 @@ function collectTokens(o: any, out: CalibItem[]) {
               disabled={busy || selectedTokenIds.size === 0}
             >
               批量提链
+            </button>
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={handleBulkDelete}
+              disabled={selectedTokenIds.size === 0}
+            >
+              删除所选
             </button>
           </div>
           {result && (

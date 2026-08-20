@@ -155,102 +155,112 @@ class BAAuthorizer:
                     pass
 
         _step(0, "init_session")
-        info = self.init_session(ba_url)
-        if info.get("dead"):
-            _step(0, "init_session", "fail", error=f"BA dead: {info.get('page_kind')}")
-            return {"status": "error", "reason": "BA_DEAD", "info": info}
-        if info.get("page_kind") == "network_error":
-            _step(0, "init_session", "fail", error=info.get("error", ""))
-            return {"status": "error", "reason": "NETWORK_ERROR", "error": info.get("error")}
-        _step(0, "init_session", "ok")
-
-        from .paypal.flow import PayPalFlow
-        from .paypal.models import generate_user, generate_card, generate_address
-        from .paypal.country_profile import country_context as _build_country_context
-
-        buyer_mode = str(kwargs.get("buyer_mode") or "elevation").strip().lower()
-        flow_cls = PayPalFlow
-        if buyer_mode in {"elevation", "identity_elevation", "member"}:
-            from .paypal.elevation_flow import IdentityElevationPayPalFlow
-            flow_cls = IdentityElevationPayPalFlow
-
-        cc = str(kwargs.get("country") or "").strip().upper()
-        ctx = kwargs.get("country_context")
-        if ctx is None:
-            if cc:
-                try:
-                    ctx = _build_country_context(cc)
-                except Exception:
-                    ctx = None
-        if ctx is not None:
-            cc = str(getattr(ctx, "country", "") or cc or "BR").upper()
-        cc = cc or "BR"
-
-        phone_full = str(phone or "").strip()
-        if identity:
-            user = _identity_to_user(identity)
-            address = _identity_to_address(identity, cc)
-        elif ctx is not None:
-            user = generate_user(phone=phone_full, country=cc)
-            address = generate_address(country=cc)
-        else:
-            # 无上下文也无 identity: 空 phone 不允许静默兜底 BR 号码
-            if not phone_full:
-                raise ValueError(
-                    "phone is required when no country_context/identity is provided "
-                    "(removed legacy +5591980133818 fallback)"
-                )
-            user = generate_user(phone=phone_full)
-            address = generate_address()
-        card = generate_card(proxy_url=self.proxy or None, country=cc)
-
-        sms_provider = kwargs.get("sms_provider")
-        if sms_provider is None and sms_callback is not None:
-            sms_provider = _callback_sms_provider(sms_callback)
-
-        flow = flow_cls(
-            ba_token=self._ba_token or "",
-            user=user,
-            card=card,
-            address=address,
-            max_card_attempts=int(kwargs.get("max_card_attempts") or 5),
-            max_flow_attempts=int(kwargs.get("max_flow_attempts") or 1),
-            max_authorize_attempts=int(kwargs.get("max_authorize_attempts") or 3),
-            proxy_enabled=bool(self.proxy),
-            proxy_config=_proxy_config(self.proxy) if self.proxy else None,
-            sms_provider=sms_provider,
-            country_context=ctx,
-            progress_cb=_make_flow_progress_cb(on_step),
-        )
-        self._flow = flow
         try:
-            result = flow.run()
-        except Exception as e:
-            import logging as _logging
-            import traceback as _tb
+            info = self.init_session(ba_url)
+            if info.get("dead"):
+                _step(0, "init_session", "fail", error=f"BA dead: {info.get('page_kind')}")
+                return {"status": "error", "reason": "BA_DEAD", "info": info}
+            if info.get("page_kind") == "network_error":
+                _step(0, "init_session", "fail", error=info.get("error", ""))
+                return {"status": "error", "reason": "NETWORK_ERROR", "error": info.get("error")}
+            _step(0, "init_session", "ok")
 
-            _logging.getLogger("ba_paypal").error(
-                "BA authorize flow crashed: %s\n%s",
-                e,
-                _tb.format_exc(),
+            from .paypal.flow import PayPalFlow
+            from .paypal.models import generate_user, generate_card, generate_address
+            from .paypal.country_profile import country_context as _build_country_context
+
+            buyer_mode = str(kwargs.get("buyer_mode") or "elevation").strip().lower()
+            flow_cls = PayPalFlow
+            if buyer_mode in {"elevation", "identity_elevation", "member"}:
+                from .paypal.elevation_flow import IdentityElevationPayPalFlow
+                flow_cls = IdentityElevationPayPalFlow
+
+            cc = str(kwargs.get("country") or "").strip().upper()
+            ctx = kwargs.get("country_context")
+            if ctx is None:
+                if cc:
+                    try:
+                        ctx = _build_country_context(cc)
+                    except Exception:
+                        ctx = None
+            if ctx is not None:
+                cc = str(getattr(ctx, "country", "") or cc or "BR").upper()
+            cc = cc or "BR"
+
+            phone_full = str(phone or "").strip()
+            if identity:
+                user = _identity_to_user(identity)
+                address = _identity_to_address(identity, cc)
+            elif ctx is not None:
+                user = generate_user(phone=phone_full, country=cc)
+                address = generate_address(country=cc)
+            else:
+                # 无上下文也无 identity: 空 phone 不允许静默兜底 BR 号码
+                if not phone_full:
+                    raise ValueError(
+                        "phone is required when no country_context/identity is provided "
+                        "(removed legacy +5591980133818 fallback)"
+                    )
+                user = generate_user(phone=phone_full)
+                address = generate_address()
+            card = generate_card(proxy_url=self.proxy or None, country=cc)
+
+            sms_provider = kwargs.get("sms_provider")
+            if sms_provider is None and sms_callback is not None:
+                sms_provider = _callback_sms_provider(sms_callback)
+
+            flow = flow_cls(
+                ba_token=self._ba_token or "",
+                user=user,
+                card=card,
+                address=address,
+                max_card_attempts=int(kwargs.get("max_card_attempts") or 5),
+                max_flow_attempts=int(kwargs.get("max_flow_attempts") or 1),
+                max_authorize_attempts=int(kwargs.get("max_authorize_attempts") or 3),
+                proxy_enabled=bool(self.proxy),
+                proxy_config=_proxy_config(self.proxy) if self.proxy else None,
+                sms_provider=sms_provider,
+                country_context=ctx,
+                progress_cb=_make_flow_progress_cb(on_step),
             )
-            result = {"status": "error", "error": f"{type(e).__name__}: {e}", "reason": "FLOW_EXCEPTION"}
-        result.setdefault("elapsed", round(time.monotonic() - t0, 2))
-        if result.get("status") == "success":
-            self._euat = getattr(flow.state, "euat_token", "") or ""
-            result["euat"] = self._euat
-            result["ec_token"] = getattr(flow.state, "ec_token", "") or ""
-            result["user_id"] = getattr(flow.state, "user_id", "") or ""
-            result["user"] = {
-                "email": getattr(flow.user, "email", "") or "",
-                "first_name": getattr(flow.user, "first_name", "") or "",
-                "last_name": getattr(flow.user, "last_name", "") or "",
-            }
-            _step(4, "authorize", "ok")
-        else:
-            _step(4, "authorize", "fail", error=result.get("error") or result.get("reason") or "unknown")
-        result["steps"] = steps
-        return result
+            self._flow = flow
+            try:
+                result = flow.run()
+            except Exception as e:
+                import logging as _logging
+                import traceback as _tb
+
+                _logging.getLogger("ba_paypal").error(
+                    "BA authorize flow crashed: %s\n%s",
+                    e,
+                    _tb.format_exc(),
+                )
+                result = {"status": "error", "error": f"{type(e).__name__}: {e}", "reason": "FLOW_EXCEPTION"}
+            result.setdefault("elapsed", round(time.monotonic() - t0, 2))
+            if result.get("status") == "success":
+                self._euat = getattr(flow.state, "euat_token", "") or ""
+                result["euat"] = self._euat
+                result["ec_token"] = getattr(flow.state, "ec_token", "") or ""
+                result["user_id"] = getattr(flow.state, "user_id", "") or ""
+                result["user"] = {
+                    "email": getattr(flow.user, "email", "") or "",
+                    "first_name": getattr(flow.user, "first_name", "") or "",
+                    "last_name": getattr(flow.user, "last_name", "") or "",
+                }
+                _step(4, "authorize", "ok")
+            else:
+                _step(4, "authorize", "fail", error=result.get("error") or result.get("reason") or "unknown")
+            result["steps"] = steps
+            return result
+        finally:
+            # 释放本授权领用的 HTTP 会话(curl_cffi/httpx 连接池), 防每次授权泄漏一个连接池。
+            # flow 自身的 session 已在 flow.run()/close() 内关闭, 这里只关 BAAuthorizer.session。
+            try:
+                if self.session is not None:
+                    self.session.close()
+                    self.session = None
+            except Exception:
+                pass
 
     # ---- 纯 HTTP passive mint 直通（原项目 http_fp 栈）----
 

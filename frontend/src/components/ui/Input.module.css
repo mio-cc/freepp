@@ -1,0 +1,79 @@
+/* Input 原语 — 包裹式 (inline-flex + gap + icon), 柔和边框, focus→brand色边+glow */
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-input);
+  background: var(--bg-card);
+  transition: border-color var(--mi-dur-fast) var(--mi-ease),
+    box-shadow var(--mi-dur-fast) var(--mi-ease);
+}
+.wrap:hover:not(:focus-within) {
+  border-color: var(--border-strong);
+}
+.wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.field {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--text-1);
+}
+.field::placeholder {
+  color: var(--text-3);
+}
+
+/* select / textarea 独立使用 (不包裹), 走 .field 直接 */
+.input {
+  /* input 在 .wrap 内, 已有 padding */
+}
+.select,
+.textarea {
+  width: 100%;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-input);
+  background: var(--bg-card);
+  color: var(--text-1);
+  transition: border-color var(--mi-dur-fast) var(--mi-ease),
+    box-shadow var(--mi-dur-fast) var(--mi-ease);
+}
+.select:hover:not(:focus),
+.textarea:hover:not(:focus) {
+  border-color: var(--border-strong);
+}
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.textarea {
+  height: auto;
+  min-height: 64px;
+  padding: 8px 11px;
+  line-height: 1.5;
+  resize: vertical;
+}

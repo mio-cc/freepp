@@ -1,0 +1,42 @@
+/* ════════════════════════════════════════════════════════════════
+   scrollbar.css — 滚动条 token 化 + 双路径互斥
+   (搬运 deepseek-harness scrollbar.css 的互斥逻辑)
+
+   两条渲染路径互斥 (load-bearing, 非 defensive):
+   - 标准 (scrollbar-width/color): Firefox + 未来 Chromium
+   - 伪元素 (::-webkit-scrollbar*): WebKit/Chromium 当前
+   一旦同时声明非 auto 的 scrollbar-width, Chromium 会丢弃所有
+   ::-webkit-scrollbar* 规则, 所以用 @supports not selector() 互斥。
+════════════════════════════════════════════════════════════════ */
+
+/* 标准 path: 仅在不支持 ::-webkit-scrollbar 的引擎生效 (Firefox 等) */
+@supports not selector(::-webkit-scrollbar) {
+  *,
+  *::before,
+  *::after {
+    scrollbar-width: thin;
+    scrollbar-color: var(--mi-alias-scrollbar-thumb) transparent;
+  }
+}
+
+/* 伪元素 path: WebKit/Chromium。track 透明, 只有 thumb 带 token 色 */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--mi-alias-scrollbar-thumb);
+  border-radius: var(--r-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--mi-alias-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

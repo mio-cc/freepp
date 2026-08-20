@@ -16,12 +16,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import random
 import re
+import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from .billing import AREA_CODES, tunnel_proxy
+
+# 流量计数持久化文件 (与 secrets.json / mail_pool.json 同级, backend/ 根目录)
+_TRAFFIC_FILE = Path(__file__).resolve().parent.parent / "proxy_traffic.json"
+_TRAFFIC_BLOCKS = ("register", "chain", "pay", "detect")
+_TRAFFIC_SAVE_INTERVAL = 3.0  # 防抖落盘间隔 (秒)
 from .config import settings
 
 # 导入只读禁改的 proxy_711 模块（原样复制，不做任何修改）
@@ -287,6 +296,18 @@ class AsyncProxyPool:
         self._health_task: asyncio.Task | None = None
         self._running = False
         self._cursors: dict[str, int] = {}  # 国家轮询游标
+        # node["concurrent"]/self._cursors 被 pick_for_stage (worker 线程) 与
+        # stop_node/health_check (事件循环) 共同读写, 须加锁防读改写竞态。
+        self._lock = threading.Lock()
+        # ── 代理流量统计 (按功能分块, 持久化到 proxy_traffic.json) ──
+        self._traffic: dict[str, dict[str, int]] = {
+            "register": {"up": 0, "down": 0},
+            "chain": {"up": 0, "down": 0},
+            "pay": {"up": 0, "down": 0},
+            "detect": {"up": 0, "down": 0},
+        }
+        self._last_traffic_save: float = 0.0
+        self._load_traffic()
 
     # ------------------------------------------------------------------
     # 节点管理
@@ -311,7 +332,8 @@ class AsyncProxyPool:
         n = self.get_node(name)
         if n:
             n["running"] = False
-            n["concurrent"] = 0
+            with self._lock:
+                n["concurrent"] = 0
             return True
         return False
 
@@ -326,7 +348,8 @@ class AsyncProxyPool:
         cnt = 0
         for n in self.nodes:
             n["running"] = False
-            n["concurrent"] = 0
+            with self._lock:
+                n["concurrent"] = 0
             cnt += 1
         return cnt
 
@@ -373,16 +396,19 @@ class AsyncProxyPool:
 
         def _try_singbox() -> str:
             for ctry in countries:
-                avail = [n for n in self.nodes
-                         if n["country_hint"] == ctry and n["running"]
-                         and n["concurrent"] < n["max_concurrent"]
-                         and n["healthy"] is not False]
-                if avail:
+                with self._lock:
+                    avail = [n for n in self.nodes
+                             if n["country_hint"] == ctry and n["running"]
+                             and n["concurrent"] < n["max_concurrent"]
+                             and n["healthy"] is not False]
+                    if not avail:
+                        continue
                     idx = self._cursors.get(ctry, 0) % len(avail)
                     self._cursors[ctry] = idx + 1
                     node = avail[idx]
                     node["concurrent"] += 1
-                    return f"http://{node.get('relay_base', '127.0.0.1')}:{node['port']}"
+                    proxy_url = f"http://{node.get('relay_base', '127.0.0.1')}:{node['port']}"
+                return proxy_url
             return ""
 
         def _try_qg() -> str:
@@ -426,17 +452,84 @@ class AsyncProxyPool:
         return _try_qg()
 
     def release(self, proxy_url: str) -> None:
-        """释放节点并发计数。"""
+        """释放节点并发计数 (stage 结束/失败/取消时调用, 防计数只增不减致节点假饱和)。"""
         if not proxy_url or "127.0.0.1" not in proxy_url:
             return
         m = re.search(r":(\d+)$", proxy_url)
         if not m:
             return
         port = int(m.group(1))
-        for n in self.nodes:
-            if n["port"] == port and n["concurrent"] > 0:
-                n["concurrent"] -= 1
+        with self._lock:
+            for n in self.nodes:
+                if n["port"] == port and n["concurrent"] > 0:
+                    n["concurrent"] -= 1
+                    return
+
+    # ------------------------------------------------------------------
+    # 代理流量统计 (按功能分块: register / chain / pay / detect, 持久化)
+    # ------------------------------------------------------------------
+    def _load_traffic(self) -> None:
+        """从 proxy_traffic.json 读回累计流量 (不存在则全零)。"""
+        try:
+            if not _TRAFFIC_FILE.exists():
                 return
+            with open(_TRAFFIC_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if not isinstance(raw, dict):
+                return
+            for blk in _TRAFFIC_BLOCKS:
+                v = raw.get(blk)
+                if isinstance(v, dict):
+                    up = int(v.get("up") or 0)
+                    down = int(v.get("down") or 0)
+                    self._traffic[blk] = {"up": max(0, up), "down": max(0, down)}
+        except Exception:
+            pass
+
+    def _save_traffic(self) -> None:
+        """原子写落盘 (tmp + os.replace)。"""
+        try:
+            with self._lock:
+                snapshot = {k: dict(v) for k, v in self._traffic.items()}
+            tmp = str(_TRAFFIC_FILE) + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(snapshot, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, _TRAFFIC_FILE)
+        except OSError:
+            pass
+
+    def _schedule_save(self) -> None:
+        """防抖落盘: 距上次写入超过 _TRAFFIC_SAVE_INTERVAL 秒才写。"""
+        now = time.time()
+        if now - self._last_traffic_save >= _TRAFFIC_SAVE_INTERVAL:
+            self._last_traffic_save = now
+            self._save_traffic()
+
+    def record_traffic(self, block: str, up_bytes: int, down_bytes: int) -> None:
+        """线程安全累加流量 (worker 线程调用)。"""
+        if block not in self._traffic:
+            return
+        with self._lock:
+            self._traffic[block]["up"] += max(0, int(up_bytes))
+            self._traffic[block]["down"] += max(0, int(down_bytes))
+        self._schedule_save()
+
+    def get_traffic(self) -> dict[str, dict[str, int]]:
+        """返回各分块流量快照 (深拷贝)。"""
+        with self._lock:
+            return {k: dict(v) for k, v in self._traffic.items()}
+
+    def reset_traffic(self, block: str | None = None) -> None:
+        """重置流量计数 (block=None 重置全部), 立即落盘。"""
+        with self._lock:
+            if block:
+                if block in self._traffic:
+                    self._traffic[block] = {"up": 0, "down": 0}
+            else:
+                for k in self._traffic:
+                    self._traffic[k] = {"up": 0, "down": 0}
+        self._last_traffic_save = time.time()
+        self._save_traffic()
 
     # ------------------------------------------------------------------
     # 健康检查

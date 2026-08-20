@@ -1,0 +1,23 @@
+/* ════════════════════════════════════════════════════════════════
+   motion.css — 全局动效变量 + reduced-motion 守护
+   (对齐 deepseek-harness base.css)
+════════════════════════════════════════════════════════════════ */
+:root {
+  --mi-ease:      cubic-bezier(0.4, 0, 0.2, 1);
+  --mi-ease-out:  cubic-bezier(0, 0, 0.2, 1);
+  --mi-dur-fast:  0.1s;
+  --mi-dur:       0.2s;
+  --mi-dur-slow:  0.3s;
+}
+
+/* reduced-motion: 所有动画/过渡降到 0.01ms, 但保留最终态 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

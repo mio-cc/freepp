@@ -96,6 +96,19 @@ def probe_token(
     返回 {session_type, cs, entity, token, token_error, promo, paypal, amount,
           status, detail, error}
     """
+    from . import traffic as _traffic
+    with _traffic.block(_traffic.BLOCK_DETECT):
+        return _probe_token_impl(access_token, session_token, proxy, country, currency, timeout)
+
+
+def _probe_token_impl(
+    access_token: str,
+    session_token: str = "",
+    proxy: str = "",
+    country: str = "US",
+    currency: str = "",
+    timeout: int = 20,
+) -> dict[str, Any]:
     cc = (country or "US").upper()
     cur = currency or billing_currency(cc)
     out: dict[str, Any] = {
@@ -246,6 +259,24 @@ def detect_channel(
     返回 {channel, present, zero_ok, methods0, methods1, amount0, amount1,
           country, currency, update_country, error}
     """
+    from . import traffic as _traffic
+    with _traffic.block(_traffic.BLOCK_DETECT):
+        return _detect_channel_impl(proxy, access_token, session_token, country,
+                                    currency, channel, update_country,
+                                    update_proxy, timeout)
+
+
+def _detect_channel_impl(
+    proxy: str,
+    access_token: str,
+    session_token: str,
+    country: str,
+    currency: str = "",
+    channel: str = "momo",
+    update_country: str = "VN",
+    update_proxy: str = "",
+    timeout: int = 15,
+) -> dict[str, Any]:
     out: dict[str, Any] = {
         "channel": channel,
         "present": False,

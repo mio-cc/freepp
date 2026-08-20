@@ -6,7 +6,7 @@
   - 无 gevent：uvicorn 纯 asyncio；注册为重度阻塞线程任务（curl_cffi 不走事件循环），
     由调用方 asyncio.to_thread 执行 stream_registration()
   - stdout 线程本地转发：仅注册线程 print 转发为 log 事件，不污染 uvicorn 日志
-  - 邮箱渠道：内置 mailtm；自定义渠道经 register_email_channel 注册
+  - 邮箱渠道：自定义渠道经 register_email_channel 注册（IMAP/自建邮箱等）
     （setup_fn(proxies, cancel_check) -> (email, openai_password, fetch_code)）
   - 落库：reg_accounts 表 + 成功账号同步写本项目 tokens 表（source=register）
 
@@ -32,8 +32,7 @@ ALIVE_STATUSES = (
     "logout", "disabled", "revoked", "unknown",
 )
 
-# 邮箱渠道：内置 mailtm（零依赖在线 API）；其余由用户注册自定义渠道
-# （见 register_email_channel，可把任意邮箱接入：IMAP/outlook 池/自建邮箱等）
+# 邮箱渠道：全部由用户注册自定义渠道（IMAP/自建邮箱等）
 # 注意：不能在模块顶层求值 list_email_channels（chatgpt_core 可能尚未完成初始化），
 # 用函数惰性获取，供 api 层与 register_one 校验使用。
 
@@ -49,6 +48,40 @@ def register_email_channel(name: str, setup_fn) -> None:
     fetch_code(timeout_sec=None, seen_ids=None, not_before=None) -> code|None
     """
     chatgpt.register_email_channel(name, setup_fn)
+
+
+def unregister_email_channel(name: str) -> None:
+    """注销自定义邮箱渠道 (池变更时移除已删除/禁用的域)。"""
+    chatgpt.CUSTOM_EMAIL_CHANNELS.pop(str(name or "").strip().lower(), None)
+
+
+def sync_imap_channels() -> int:
+    """按 mail_pool.json 当前状态同步注册 IMAP 渠道 (运行时动态, 免重启)。
+
+    - enabled 邮箱: 注册 imap:<标签> 渠道 (已注册则跳过, 不覆盖活跃 setup_fn)
+    - 已禁用/已删除的 imap:* 渠道: 注销, 不再出现在下拉
+    返回当前注册的 IMAP 渠道数。仅在单线程启动期调用此函数无并发顾虑;
+    运行时由 mail_pool API 变更后同步调用, 调用方为单事件循环请求线程, 亦无竞态。
+    """
+    from core.mail_pool_store import mail_pool_store
+    from reg.channel_imap import build_channel as _imap_build_channel
+
+    mail_pool_store.load()
+    want: dict[str, str] = {}  # chan_name -> mbox_id
+    for m in mail_pool_store.get_all()["mailboxes"]:
+        if not m.get("enabled"):
+            continue
+        _lbl = (m.get("label") or m.get("username") or m["id"])[:32]
+        want[f"imap:{_lbl}"] = m["id"]
+    # 注销不再启用的 imap:* 渠道 (保留 api798 等其它自定义渠道)
+    for name in list(chatgpt.CUSTOM_EMAIL_CHANNELS.keys()):
+        if name.startswith("imap:") and name not in want:
+            unregister_email_channel(name)
+    # 注册新增/补回的 imap:* 渠道 (已存在则跳过, 避免覆盖正在使用的 setup_fn)
+    for chan, mbox_id in want.items():
+        if chan not in chatgpt.CUSTOM_EMAIL_CHANNELS:
+            register_email_channel(chan, _imap_build_channel(mbox_id))
+    return sum(1 for n in chatgpt.CUSTOM_EMAIL_CHANNELS if n.startswith("imap:"))
 
 
 def _now_iso() -> str:
@@ -267,8 +300,10 @@ def register_one(email_mode: str, proxy: str | None, cancel: threading.Event,
     result = None
     _STDOUT_MUX.set_forwarder(fwd)
     try:
-        result = chatgpt.run(proxy, email=mapped,
-                             cancel_check=cancel.is_set)
+        from core import traffic as _traffic
+        with _traffic.block(_traffic.BLOCK_REGISTER):
+            result = chatgpt.run(proxy, email=mapped,
+                                 cancel_check=cancel.is_set)
     except Exception as e:
         on_event({"type": "log", "stage": "register_one",
                   "message": f"注册异常: {repr(e)[:300]}"})
@@ -332,14 +367,28 @@ def register_one(email_mode: str, proxy: str | None, cancel: threading.Event,
 
 def _emit(ev: dict):
     STATE.push(ev)
+    # 同步广播到 WebSocket (供全局实时日志 / 一键流程页实时可见)
+    try:
+        from api.deps import emit_ws
+        ws_ev = dict(ev)
+        t = str(ws_ev.get("type") or "")
+        # 加 reg_ 前缀避免与提链事件 type 冲突; 复制原 type 到 reg_event 字段
+        if t:
+            ws_ev["reg_event"] = t
+            ws_ev["type"] = "reg_" + t
+        emit_ws(ws_ev)
+    except Exception:
+        pass
 
 
-def stream_registration(count: int, email_mode: str = "mailtm", concurrency: int = 1,
+def stream_registration(count: int, email_mode: str = "", concurrency: int = 1,
                         cooldown: float = 30.0, task_id: str | None = None,
-                        proxy: str | None = None):
+                        proxy: str | None = None, country: str = "auto"):
     """批量注册（阻塞，须在独立线程运行）。逐号同步，事件推入 STATE。
 
     proxy: None 时由 chatgpt.run 自动启用 711 住宅中继（需 PROXY_711_USER/PASS）。
+    country: "auto"=随机选 (沿用现状); 指定国家码则用 build_711_proxy(region=country) 构造代理,
+             注册出口 IP 国家可控 (与提链/支付段国家对齐, 避免账单国不匹配)。
     """
     conn = ra.connect()
     task_id = task_id or uuid.uuid4().hex
@@ -348,10 +397,25 @@ def stream_registration(count: int, email_mode: str = "mailtm", concurrency: int
         concurrency = min(max(int(concurrency or 1), 1), 10)
         STATE.set_running(task_id)
         _emit({"type": "start", "task_id": task_id, "total": total,
-               "email_mode": email_mode, "concurrency": concurrency})
+               "email_mode": email_mode, "concurrency": concurrency, "country": country})
 
         results, success, failed = [], 0, 0
         cancel = STATE.cancel_event
+        # 指定国家且无显式代理 → 自动用 711 住宅代理 (按国家构造)
+        _cc = str(country or "auto").strip().upper()
+        if _cc and _cc != "AUTO" and not proxy:
+            try:
+                from core.proxy_711 import build_711_proxy, DEFAULT_711_USER
+                if DEFAULT_711_USER and DEFAULT_711_USER != "YOUR_711_USER":
+                    proxy = build_711_proxy(region=_cc, sticky=True, sess_time=30)
+                    _emit({"type": "log", "stage": "engine",
+                           "message": f"按国家 {_cc} 构造 711 住宅代理出口"})
+                else:
+                    _emit({"type": "log", "stage": "engine",
+                           "message": f"711 未配置, 国家 {_cc} 指定无效, 用自动探测"})
+            except Exception as e:
+                _emit({"type": "log", "stage": "engine",
+                       "message": f"构造国家代理失败 {_cc}: {repr(e)[:120]}"})
         # 每号独立 711 sticky session（对齐 codex server._make_sticky_proxy：
         # 解析传入凭据 + 随机 region + 随机 session id → 每号不同 IP 段）
         def _make_sticky_proxy(base_proxy: str | None) -> str | None:
@@ -362,9 +426,10 @@ def stream_registration(count: int, email_mode: str = "mailtm", concurrency: int
                 if not _p711.is_711_proxy(base_proxy):
                     return base_proxy
                 # 从传入 URL 提取真实 user:pass@host:port，替换 user 为
-                # <user>-session-<随机11位>-sessTime-30-region-<随机>
+                # <user>-session-<随机11位>-sessTime-30-region-<国家>
+                # 指定国家时用该国家, 否则随机选 (pick_region)
                 info = _p711.parse_proxy_url(base_proxy)
-                region = _p711.pick_region()
+                region = _cc if (_cc and _cc != "AUTO") else _p711.pick_region()
                 import random as _r
                 import string as _st
                 sid = "".join(_r.choice(_st.ascii_lowercase + _st.digits) for _ in range(11))

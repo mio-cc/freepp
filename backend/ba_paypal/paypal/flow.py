@@ -5902,7 +5902,7 @@ class PayPalFlow:
                 "state": self.address.state,
                 "accountQuality": {
                     "autoCompleteType": billing_autocomplete_type,
-                    "isUserModified": True,
+                    "isUserModified": billing_autocomplete_type != "ANS",
                 },
                 "country": country,
                 "familyName": self.user.last_name,
@@ -5927,6 +5927,18 @@ class PayPalFlow:
             "dateOfBirth": self._dob_payload(),
             "crsData": None,
             "legalAgreements": {},
+            # residentialAddress: PayPal 对多数非美国家 (GB/DE/TH/VN/AO/JP/...)
+            # 校验居住地与账单地址一致; 缺失会报 RESIDENTIAL_ADDRESS_NOT_FOUND。
+            # 已对 GB 修复并验证, 此处对所有非 US 国家统一传 billingAddress 同值
+            # (US 不发该字段以避免冗余, 其表单无居住地校验)。
+            "residentialAddress": {
+                "postalCode": self.address.postal_code,
+                "line1": self._billing_line1(),
+                "line2": self.address.district,
+                "city": self.address.city,
+                "state": self.address.state,
+                "country": country,
+            },
         }
 
         if self.user.nationality and "Nationality" in kyc_fields:
@@ -5942,10 +5954,44 @@ class PayPalFlow:
             variables["occupation"] = self.user.occupation
         if identity_document is not None:
             variables["identityDocument"] = identity_document
+        # --- 各国特殊必填字段 (按 kycFields 白名单条件发送, 多发会校验失败) ---
+        # Gender: 仅 HK 等国家在 kycFields 中要求 (GraphQL 枚举 MALE/FEMALE/UNSPECIFIED)。
+        if self.user.gender and "Gender" in kyc_fields:
+            variables["gender"] = self.user.gender
+        # placeOfBirth: HK 等国家在 kycFields 中要求 (CountryCodes 枚举, 传 ISO2)。
+        if self.user.place_of_birth and "PlaceOfBirth" in kyc_fields:
+            variables["placeOfBirth"] = self.user.place_of_birth
+        # secondaryIdentityDocument: 仅 RU 在 kycFields 中要求次级证件 (IdentityDocumentInput)。
+        if (
+            self.user.secondary_identity_document
+            and "SecondaryIdentityDocumentType" in kyc_fields
+            and "SecondaryIdentityDocumentNumber" in kyc_fields
+        ):
+            variables["secondaryIdentityDocument"] = {
+                "type": self.user.secondary_identity_document.get("type", ""),
+                "value": self.user.secondary_identity_document.get("value", ""),
+            }
+        # US 表单无居住地校验, 移除 residentialAddress 避免 NULL 字段误判 (已验证 GB/DE 等需保留)。
+        if country == "US":
+            variables.pop("residentialAddress", None)
         return variables
 
     def _send_address_autocomplete(self, token: str) -> None:
         self._billing_address_autocomplete_succeeded = False
+        # PayPal 的 AddressAutocomplete 依赖 Geonames 邮编数据库, 这些国家
+        # 在该库中缺失, 任何邮编都返回空壳; 发出该请求会让 PayPal 服务端
+        # 状态机进入异常分支导致后续 SignUpNewMember 挂起。直接跳过, 走
+        # 纯 MANUAL 路径 (与这些国家正常注册时的行为一致)。
+        autocomplete_unsupported = frozenset({"VN", "AO", "BH", "CI"})
+        country = (self.address.country or "").upper()
+        if country in autocomplete_unsupported:
+            logger.info(
+                "AddressAutocompleteFromPostalCodeQuery skipped for {}: "
+                "PayPal has no postal-code normalization data; "
+                "using MANUAL billing address metadata.",
+                country,
+            )
+            return
         try:
             address_result = self.session.graphql(
                 "AddressAutocompleteFromPostalCodeQuery",
@@ -5991,10 +6037,17 @@ class PayPalFlow:
                 normalized.get("city"),
                 normalized.get("state"),
             )
+            norm_state = str(normalized.get("state") or "").strip()
+            # GB: PayPal autocomplete returns borough names (Camden, Westminster,
+            # City of London…) as state.  Empirical testing showed both ANS and
+            # MANUAL modes trigger RESIDENTIAL_ADDRESS_NOT_FOUND when the state
+            # field is a borough or mismatches.  Accept the full autocomplete
+            # address as-is (ANS mode) — this lets PayPal validate its own
+            # normalized address end-to-end.
             self.address.street = normalized.get("line1") or self.address.street
             self.address.district = normalized.get("line2") or self.address.district
             self.address.city = normalized.get("city") or self.address.city
-            self.address.state = normalized.get("state") or self.address.state
+            self.address.state = norm_state or self.address.state
             self.address.postal_code = normalized.get("postalCode") or self.address.postal_code
             self._billing_address_autocomplete_succeeded = True
         except Exception as e:

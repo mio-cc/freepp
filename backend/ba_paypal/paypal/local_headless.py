@@ -23,6 +23,11 @@ from config import BROWSER_PROFILE, SCREEN, USER_AGENT, VIEWPORT
 
 JsonObject = dict[str, object]
 
+# cookie 缓存进程内读写锁: flow 在线程池并发跑, _load/_save 须互斥避免读到
+# os.replace 期间的半写文件 + 读改写竞态 (审计 #2/#3)。文件锁(_lock_cache_file)
+# 仅跨进程; 此锁解决本进程内多线程并发。
+_cookie_cache_lock = threading.Lock()
+
 
 class _Request(Protocol):
     url: str
@@ -623,11 +628,13 @@ def _load_headless_cached_cookies(proxy_url: str, profile: JsonObject) -> list[J
     path = _headless_cookie_cache_path()
     if not path.exists():
         return []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8") or "{}")
-    except Exception as exc:
-        logger.debug("Local headless cookie cache is unreadable; ignoring: {}", exc)
-        return []
+    # 加进程内锁: 与 _save 的 os.replace 互斥, 避免读到半写文件 (审计 #2)。
+    with _cookie_cache_lock:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8") or "{}")
+        except Exception as exc:
+            logger.debug("Local headless cookie cache is unreadable; ignoring: {}", exc)
+            return []
     key = _headless_cookie_cache_key(proxy_url, profile)
     entries = _dict_value(_dict_value(data).get("entries"))
     entry = _dict_value(entries.get(key))
@@ -642,51 +649,56 @@ def _save_headless_cached_cookies(proxy_url: str, profile: JsonObject, cookies: 
     if not filtered:
         return
     path = _headless_cookie_cache_path()
-    lock_handle = _lock_cache_file(path.with_suffix(path.suffix + ".lock"))
     now = time.time()
     key = _headless_cookie_cache_key(proxy_url, profile)
-    try:
-        payload: JsonObject = {"version": 1, "updated_at": now, "entries": {}}
-        if path.exists():
+    # 进程内锁优先: 与 _load 互斥防半写读; 文件锁 (跨进程) 兼作补充。
+    with _cookie_cache_lock:
+        lock_handle = _lock_cache_file(path.with_suffix(path.suffix + ".lock"))
+        try:
+            payload: JsonObject = {"version": 1, "updated_at": now, "entries": {}}
+            if path.exists():
+                try:
+                    loaded = json.loads(path.read_text(encoding="utf-8") or "{}")
+                    if isinstance(loaded, dict):
+                        payload.update(cast(JsonObject, loaded))
+                except Exception:
+                    pass
+            entries = _dict_value(payload.get("entries"))
+            entries[key] = {
+                "updated_at": now,
+                "profile": {
+                    "user_agent": str(profile.get("user_agent") or USER_AGENT),
+                    "platform": str(profile.get("sec_ch_platform") or profile.get("platform") or ""),
+                    "timezone": str(profile.get("timezone") or ""),
+                    "locale": str(profile.get("locale") or profile.get("language") or ""),
+                },
+                "cookies": filtered,
+            }
+            payload["version"] = 1
+            payload["updated_at"] = now
+            payload["entries"] = entries
+            _prepare_private_dir(path.parent)
+            fd, temp_name = tempfile.mkstemp(prefix=path.name, suffix=".tmp", dir=str(path.parent))
             try:
-                loaded = json.loads(path.read_text(encoding="utf-8") or "{}")
-                if isinstance(loaded, dict):
-                    payload.update(cast(JsonObject, loaded))
-            except Exception:
-                pass
-        entries = _dict_value(payload.get("entries"))
-        entries[key] = {
-            "updated_at": now,
-            "profile": {
-                "user_agent": str(profile.get("user_agent") or USER_AGENT),
-                "platform": str(profile.get("sec_ch_platform") or profile.get("platform") or ""),
-                "timezone": str(profile.get("timezone") or ""),
-                "locale": str(profile.get("locale") or profile.get("language") or ""),
-            },
-            "cookies": filtered,
-        }
-        payload["version"] = 1
-        payload["updated_at"] = now
-        payload["entries"] = entries
-        _prepare_private_dir(path.parent)
-        fd, temp_name = tempfile.mkstemp(prefix=path.name, suffix=".tmp", dir=str(path.parent))
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-                handle.write("\n")
-            os.chmod(temp_name, 0o600)
-            os.replace(temp_name, path)
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+                    handle.write("\n")
+                os.chmod(temp_name, 0o600)
+                os.replace(temp_name, path)
+            finally:
+                if os.path.exists(temp_name):
+                    os.unlink(temp_name)
         finally:
-            if os.path.exists(temp_name):
-                os.unlink(temp_name)
-    finally:
-        try:
-            import fcntl
+            try:
+                import fcntl
 
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-            lock_handle.close()
-        except Exception:
-            pass
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+                lock_handle.close()
+            except Exception:
+                try:
+                    lock_handle.close()
+                except Exception:
+                    pass
 
 
 def _headless_language_list(language: str) -> list[str]:
@@ -713,10 +725,11 @@ def _sec_ch_ua_header_from_metadata(metadata: JsonObject, *, full: bool = False)
 def _headless_extra_http_headers(profile: JsonObject) -> dict[str, str]:
     metadata = _chrome_user_agent_metadata(profile)
     language = str(profile.get("language") or "pt-BR")
+    lang_primary = language.split("-")[0]
     bitness = str(metadata.get("bitness") or profile.get("sec_ch_bitness") or "64")
     platform_version = str(metadata.get("platformVersion") or profile.get("sec_ch_platform_version") or "").strip('"')
     return {
-        "Accept-Language": f"{language},pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Language": f"{language},{lang_primary};q=0.9,en-US;q=0.8,en;q=0.7",
         "Sec-CH-UA": _sec_ch_ua_header_from_metadata(metadata),
         "Sec-CH-UA-Mobile": "?0",
         "Sec-CH-UA-Platform": str(profile.get("sec_ch_platform") or '"Linux"'),
@@ -964,6 +977,7 @@ def _apply_cdp_stealth_overrides(
 ) -> None:
     profile = _merged_context_dict(BROWSER_PROFILE, browser_profile)
     language = str(profile.get("language") or "pt-BR")
+    lang_primary = language.split("-")[0]
     try:
         cdp = context.new_cdp_session(page)
     except Exception as exc:
@@ -974,7 +988,7 @@ def _apply_cdp_stealth_overrides(
             "Network.setUserAgentOverride",
             {
                 "userAgent": str(profile.get("user_agent") or USER_AGENT),
-                "acceptLanguage": f"{language},pt;q=0.9,en-US;q=0.8,en;q=0.7",
+                "acceptLanguage": f"{language},{lang_primary};q=0.9,en-US;q=0.8,en;q=0.7",
                 "platform": str(profile.get("platform") or "Linux x86_64"),
                 "userAgentMetadata": _chrome_user_agent_metadata(profile),
             },
@@ -1639,11 +1653,26 @@ def headless_allowlist_learning_enabled() -> bool:
 
 
 def _lock_cache_file(lock_path: Path):
-    import fcntl
+    """跨进程文件锁 (仅用于多进程场景)。Windows 无 fcntl, 用 msvcrt 或退化为无锁。
 
+    本函数仅锁文件; 进程内多线程并发由 _cookie_cache_lock 统一保护。
+    """
     _prepare_private_dir(lock_path.parent)
     handle = lock_path.open("a+", encoding="utf-8")
-    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    try:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    except ImportError:
+        # Windows: fcntl 不存在, 用 msvcrt 加字节范围锁 (LOCK_EX 等价); 失败则无锁。
+        try:
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        except Exception:
+            pass  # 无文件锁退化: 仍有进程内 _cookie_cache_lock 兜底
+    except Exception:
+        pass
     return handle
 
 

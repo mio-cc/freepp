@@ -103,7 +103,7 @@ export function CountrySelect({
             background: "var(--bg-card)",
             border: "1px solid var(--border)",
             borderRadius: 10,
-            boxShadow: "0 10px 32px rgba(0,0,0,.35)",
+            boxShadow: "var(--shadow-lg)",
             padding: 8,
           }}
         >
@@ -278,8 +278,8 @@ export function StageRow({
         <span
           className="tag"
           style={isOaics
-            ? { color: "var(--oaics, #3b82f6)", background: "rgba(59,130,246,.12)", border: "1px solid rgba(59,130,246,.35)" }
-            : { color: "var(--accent-strong)", background: "var(--accent-dim)", border: "1px solid rgba(108,108,248,.3)" }}
+            ? { color: "var(--oaics)", background: "var(--oaics-soft)", border: "1px solid var(--oaics-soft)" }
+            : { color: "var(--accent-strong)", background: "var(--accent-dim)", border: "1px solid var(--accent-dim)" }}
         >
           {short}
         </span>
@@ -410,7 +410,7 @@ export function StageSettingsPanel({
 
   if (hasOaics) {
     return (
-      <div className="card settings-panel">
+      <div className="card">
         <div className="card-head">
           <span className="card-title">
             {BRANCH_CN[branchName]} · 提链管道
@@ -429,7 +429,7 @@ export function StageSettingsPanel({
           <button
             className={`btn btn-sm ${tab === "oaics" ? "btn-primary" : "btn-ghost"}`}
             onClick={() => setTab("oaics")}
-            style={tab === "oaics" ? { background: "var(--oaics, #3b82f6)", borderColor: "var(--oaics, #3b82f6)" } : { color: "var(--oaics, #3b82f6)" }}
+            style={tab === "oaics" ? { background: "var(--oaics)", borderColor: "var(--oaics)" } : { color: "var(--oaics)" }}
           >
             OAICS 五段 (custom 纯 HTTP) 🔒
           </button>
@@ -587,7 +587,7 @@ function OaicsStages({
             const label = cc === "auto" ? "AUTO" : `${flag(cc)}${cc}`;
             return (
               <span key={stage} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                <span className="flow-node" style={{ borderColor: "var(--oaics, #3b82f6)", color: "var(--oaics, #3b82f6)" }}>
+                <span className="flow-node" style={{ borderColor: "var(--oaics)", color: "var(--oaics)" }}>
                   {OAICS_STAGE_SHORT[stage]} {label}
                 </span>
                 {i < OAICS_STAGE_ORDER.length - 1 && <span className="flow-arrow">→</span>}
@@ -632,7 +632,7 @@ function CsStages({
   };
 
   return (
-    <div className="card settings-panel">
+    <div className="card">
       <div className="card-head">
         <span className="card-title">
           {BRANCH_CN[branchName]} · 七段管道
@@ -654,6 +654,12 @@ function CsStages({
           desc={`init 返回的 payment_method_types 须含 ${branch.channel || "paypal"}`}
           value={!!branch.channel_check}
           onChange={(v) => onSaveFlags({ channel_check: v })}
+        />
+        <BranchToggle
+          label="渠道探测"
+          desc="init 后提前探测渠道 (update 段已有渠道校验, 可关闭以省一次请求)"
+          value={!!branch.channel_probe}
+          onChange={(v) => onSaveFlags({ channel_probe: v })}
         />
         <BranchToggle
           label="金额校验"
@@ -695,6 +701,47 @@ function CsStages({
           ))}
         </div>
       )}
+
+      <div className="card-body" style={{ borderTop: "1px solid var(--border-faint)" }}>
+        <div className="section-head">
+          <span className="section-title">建单模式</span>
+          <span className="muted" style={{ fontSize: 11.5 }}>checkout 的 ui_mode + 内联 promo 组合 · 改动自动保存</span>
+        </div>
+        <div className="setting-row">
+          <span className="setting-label">checkout 模式</span>
+          <div className="setting-control" style={{ flex: 1, gap: 10 }}>
+            <select
+              className="input"
+              value={branch.checkout_mode || "auto"}
+              onChange={(e) => onSaveFlags({ checkout_mode: e.target.value })}
+              style={{ width: 220 }}
+            >
+              <option value="auto">AUTO · 原项目逻辑</option>
+              <option value="host_inline">HOST · 内联 (hosted+promo)</option>
+              <option value="host_no_inline">HOST · 不内联 (hosted)</option>
+              <option value="cust_inline">CUST · 内联 (custom+promo)</option>
+              <option value="cust_no_inline">CUST · 不内联 (custom)</option>
+            </select>
+            <span className="muted" style={{ fontSize: 11.5, flex: 1 }}>
+              {(() => {
+                const m = branch.checkout_mode || "auto";
+                if (m === "auto") return "按服务端下发会话类型自动分流: oaics_→五段 / cs_live_→七段";
+                if (m === "host_inline") return "hosted 建单 + 内联 promo · checkout 直接压 0 (最强)";
+                if (m === "host_no_inline") return "hosted 建单 + 不内联 · 靠 update 段压 0";
+                if (m === "cust_inline") return "custom 建单 + 内联 promo · 靠 update 补救压 0";
+                if (m === "cust_no_inline") return "custom 建单 + 不内联 · 全价需手动处理";
+                return "";
+              })()}
+            </span>
+          </div>
+        </div>
+        <div
+          className="note"
+          style={{ marginBottom: 8, fontSize: 11, padding: "6px 10px" }}
+        >
+          oaics_ 会话由 ChatGPT 服务端下发时仍自动走 OAICS 五段, 此项仅影响 cs_live_ 七段路径的 checkout 参数。
+        </div>
+      </div>
 
       <div className="card-body" style={{ borderTop: "1px solid var(--border-faint)" }}>
         <div className="section-head">

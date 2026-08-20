@@ -143,13 +143,20 @@ async def subscribe(req: SubscribeRequest) -> dict[str, Any]:
         try:
             at, st, account_id = await _resolve_token(req.token_id, req.access_token)
             hcaptcha_token = _ensure_hcaptcha(req.hcaptcha_token)
-            result = await asyncio.to_thread(
-                bind_and_subscribe, at, st,
-                account_id=req.account_id or account_id,
-                card_id=req.card_id, taxfree_state=req.taxfree_state,
-                rebind_recheckout=req.rebind_recheckout,
-                hcaptcha_token=hcaptcha_token,
-            )
+
+            from core import traffic as _traffic
+            def _pay_run():
+                _traffic.set_block(_traffic.BLOCK_PAY)
+                try:
+                    return bind_and_subscribe(at, st,
+                        account_id=req.account_id or account_id,
+                        card_id=req.card_id, taxfree_state=req.taxfree_state,
+                        rebind_recheckout=req.rebind_recheckout,
+                        hcaptcha_token=hcaptcha_token)
+                finally:
+                    _traffic.clear_block()
+
+            result = await asyncio.to_thread(_pay_run)
             if result.get("ok"):
                 record["status"] = "success"
                 record["step"] = "done"
@@ -318,6 +325,17 @@ async def delete_card(card_id: int) -> dict[str, Any]:
     from core.card_store import card_store
     ok = card_store.delete_card(card_id)
     return {"ok": ok}
+
+
+@router.post("/cards/bulk_delete")
+async def bulk_delete_cards(body: dict | None = None) -> dict[str, Any]:
+    """批量删除卡片。body: {card_ids: [1, 2, 3]}"""
+    from core.card_store import card_store
+    card_ids = [int(x) for x in (body or {}).get("card_ids", []) if str(x).strip().isdigit()]
+    if not card_ids:
+        return {"ok": False, "error": "未提供有效 ID", "deleted": 0}
+    deleted = card_store.bulk_delete_cards(card_ids)
+    return {"ok": True, "deleted": deleted}
 
 
 @router.get("/taxfree")

@@ -68,6 +68,10 @@ class BranchConfig(BaseModel):
     follow_checkout: bool = False    # 分段跟随: 除 update 外所有段跟随 checkout 段
     billing_country: str = "auto"    # 账单国: "auto"=跟随 checkout 段国家, 否则固定国家
     attempts: int = 8                # 总尝试次数 (每 Token 最大尝试轮数)
+    # checkout 建单模式: auto(原项目逻辑) / host_inline / host_no_inline / cust_inline / cust_no_inline
+    # 仅影响 cs_live_ 七段路径的 checkout 参数 (ui_mode + promo_inline);
+    # oaics_ 会话由服务端下发时仍自动走 oaics 五段, 不受此字段影响。
+    checkout_mode: str = "auto"
     stages: dict[str, StageConfig] = {}
 
 
@@ -131,6 +135,7 @@ class Settings:
                 follow_checkout=bool(raw_b.get("follow_checkout", False)),
                 billing_country=str(raw_b.get("billing_country") or "auto"),
                 attempts=int(raw_b.get("attempts") or 8),
+                checkout_mode=str(raw_b.get("checkout_mode") or "auto"),
                 stages=b_stages,
             )
 
@@ -266,6 +271,7 @@ class Settings:
             "token_source": b.token_source,
             "require_zero": b.require_zero,
             "channel_check": b.channel_check,
+            "channel_probe": b.channel_probe,
             "dual_init": b.dual_init,
             "init0_ccs": b.init0_ccs,
             "init1_ccs": b.init1_ccs,
@@ -273,6 +279,7 @@ class Settings:
             "follow_checkout": b.follow_checkout,
             "billing_country": b.billing_country,
             "attempts": b.attempts,
+            "checkout_mode": b.checkout_mode,
             "stages": stages,
             "oaics": {
                 "label": ob.label,
@@ -343,6 +350,16 @@ class Settings:
     @property
     def momo_cfg(self) -> dict[str, Any]:
         return self.raw.get("momo") or {}
+
+    @property
+    def geo_cfg(self) -> dict[str, Any]:
+        """IP 地理查询配置 (sources/timeout/enabled)。"""
+        return self.raw.get("geo") or {}
+
+    @property
+    def logging_cfg(self) -> dict[str, Any]:
+        """日志配置 (level/json_logs)。"""
+        return self.raw.get("logging") or {}
 
     # ---- web 静态目录 ----
     @property

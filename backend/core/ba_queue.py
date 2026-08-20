@@ -122,6 +122,11 @@ def update(ba_token: str, **fields: Any) -> None:
         _load_locked()
         for r in _records:
             if r.get("ba_token") == ba_token:
+                # 僵尸防护: 该记录已被 mark_stale 标记 stale, 拒绝后台 worker 把状态
+                # 回写成 success/running (复活已被判死的记录); 允许 failed 与
+                # 非状态字段(progress 等)写入不影响终态。
+                if r.get("stale") and fields.get("status") in ("success", "running"):
+                    return
                 for k, v in fields.items():
                     r[k] = v
                 if "country" in fields:
@@ -197,6 +202,7 @@ def try_start(ba_token: str) -> tuple[bool, str]:
         r["status"] = "running"
         r["step"] = "submit_email"
         r["error"] = ""
+        r["stale"] = False  # 合法重跑清僵尸标记
         r["updated_at"] = int(time.time() * 1000)
         _save_locked()
         return True, ""
@@ -220,13 +226,19 @@ def retry(ba_token: str, allow_success: bool = False) -> bool:
         r["status"] = "pending"
         r["step"] = "submit_email"
         r["error"] = ""
+        r["stale"] = False  # 合法重试清僵尸标记
         r["updated_at"] = int(time.time() * 1000)
         _save_locked()
         return True
 
 
 def mark_stale(older_than_ms: int = _STALE_RUNNING_MS) -> int:
-    """僵尸 running 清理: running 且 updated_at 超时 -> failed + error=stale_running。"""
+    """僵尸 running 清理: running 且 updated_at 超时 -> failed + error=stale_running。
+
+    置 stale=True 标记: 后台 worker 若仍存活并在超时后完成, update() 会拒绝其
+    把状态回写成 success/running (审计: zombie worker 复活 stale 记录)。
+    retry/try_start/手动重跑会清 stale。
+    """
     now = int(time.time() * 1000)
     marked = 0
     with _lock:
@@ -235,6 +247,7 @@ def mark_stale(older_than_ms: int = _STALE_RUNNING_MS) -> int:
             if r.get("status") == "running" and now - int(r.get("updated_at") or 0) > older_than_ms:
                 r["status"] = "failed"
                 r["error"] = "stale_running"
+                r["stale"] = True
                 r["updated_at"] = now
                 marked += 1
         if marked:

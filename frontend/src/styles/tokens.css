@@ -1,0 +1,292 @@
+/* ════════════════════════════════════════════════════════════════
+   tokens.css — 双层设计令牌 (static + alias)
+   static 层: 原始色值, 不随主题变 (供图表/语法高亮等需绝对色值处引用)
+   alias 层:  语义别名, 随 [data-theme] 切换; 组件 CSS 只引用别名
+   过渡别名:  现有 --bg-base/--text-1 等 37 个名指向别名, 现有类名零改动即获得暗色
+   挂载点:    html[data-theme] (配合 index.html 防闪屏脚本)
+════════════════════════════════════════════════════════════════ */
+
+/* ── 静态层 ──────────────────────────────────────────────────────
+   偏蓝中性色 (参考 deepseek-harness 设计平台), 与品牌色同源更和谐;
+   品牌色由 Win11 纯蓝 #0067c0 调整为更现代的靛蓝 #4176e6。 */
+:root {
+  /* 中性色族 (偏蓝冷灰, 替代原暖灰 — 消除"土"感, 与品牌色同源) */
+  --mi-static-neutral-00:   #ffffff;
+  --mi-static-neutral-50:   #f9fafb;
+  --mi-static-neutral-100:  #f3f4f6;
+  --mi-static-neutral-150:  #edf0f3;
+  --mi-static-neutral-200:  #e5e7eb;
+  --mi-static-neutral-300:  #d1d5db;
+  --mi-static-neutral-400:  #9ca3af;
+  --mi-static-neutral-500:  #6b7280;
+  --mi-static-neutral-600:  #4b5563;
+  --mi-static-neutral-700:  #374151;
+  --mi-static-neutral-800:  #1f2937;
+  --mi-static-neutral-850:  #181f2a;
+  --mi-static-neutral-900:  #111827;
+  --mi-static-neutral-1000: #0b1018;
+
+  /* 品牌靛蓝 (替代原 Win11 #0067c0 — 更现代柔和, 对齐 deepseek 色相) */
+  --mi-static-blue-50:   #eef4ff;
+  --mi-static-blue-100:  #dbe7fe;
+  --mi-static-blue-300:  #93b4fd;
+  --mi-static-blue-400:  #4176e6;   /* --info / --st-checkout */
+  --mi-static-blue-500:  #3b66d9;   /* --accent (主品牌) */
+  --mi-static-blue-600:  #2f51b8;   /* --accent-strong (hover) */
+  --mi-static-blue-700:  #27429a;
+
+  /* 语义状态色 (更柔和现代, 对齐 deepseek 色阶) */
+  --mi-static-green-500: #22c55e;
+  --mi-static-green-600: #16a34a;
+  --mi-static-amber-500: #f59e0b;
+  --mi-static-amber-600: #d97706;
+  --mi-static-red-500:   #ef4444;
+  --mi-static-red-600:   #dc2626;
+
+  /* 7 段链路色 (现有值, 修复 --st-* 已声明未使用) */
+  --mi-static-cyan-500:    #038387;   /* --st-init */
+  --mi-static-amber-700:   #986f0b;   /* --st-update */
+  --mi-static-orange-500:  #ca5010;   /* --st-provider */
+  --mi-static-magenta-500: #c239b3;   /* --st-approve */
+  --mi-static-purple-500:  #744da9;   /* --st-resolve */
+  --mi-static-pink-500:    #ec4899;   /* OAICS ok 标识 */
+  --mi-static-pink-400:    #f472b6;   /* OAICS ok (暗色用) */
+
+  /* 圆角 (按钮胶囊化, 卡片/输入框柔和化) */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-full: 999px;
+  --r-btn: 10px;        /* 按钮胶囊 (非纯圆, 保持现代克制) */
+  --r-input: 10px;      /* 输入框圆角 (略大更柔和) */
+
+  /* 字体 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei UI", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas,
+    "Courier New", monospace;
+
+  /* 布局 */
+  --sidebar-w: 216px;
+  --sidebar-collapsed: 52px;
+  --titlebar-h: 46px;
+}
+
+/* ── 别名层 (亮色) ───────────────────────────────────────────────
+   组件 CSS 只引用 --mi-alias-*, 暗色只需覆盖此处。 */
+html {
+  --mi-alias-bg-base:    var(--mi-static-neutral-50);
+  --mi-alias-bg-app:     var(--mi-static-neutral-50);
+  --mi-alias-bg-panel:   var(--mi-static-neutral-00);
+  --mi-alias-bg-card:    var(--mi-static-neutral-00);
+  --mi-alias-bg-raised:  var(--mi-static-neutral-100);
+  --mi-alias-bg-hover:   var(--mi-static-neutral-150);
+  --mi-alias-bg-active:  var(--mi-static-neutral-200);
+
+  --mi-alias-label-primary:   var(--mi-static-neutral-900);
+  --mi-alias-label-secondary: var(--mi-static-neutral-700);
+  --mi-alias-label-tertiary:  var(--mi-static-neutral-500);
+  --mi-alias-label-dimmed:    var(--mi-static-neutral-400);
+  --mi-alias-label-invert:    var(--mi-static-neutral-00);
+
+  --mi-alias-border-faint:  rgba(0, 0, 0, 0.05);
+  --mi-alias-border-base:   rgba(0, 0, 0, 0.08);
+  --mi-alias-border-strong: rgba(0, 0, 0, 0.12);
+
+  --mi-alias-brand:        var(--mi-static-blue-500);
+  --mi-alias-brand-strong: var(--mi-static-blue-600);
+  --mi-alias-brand-dim:    rgba(59, 102, 217, 0.08);
+  --mi-alias-brand-glow:   rgba(59, 102, 217, 0.16);
+
+  --mi-alias-interactive-hover:  rgba(0, 0, 0, 0.04);
+  --mi-alias-interactive-active: rgba(0, 0, 0, 0.07);
+
+  --mi-alias-ok:        var(--mi-static-green-500);
+  --mi-alias-ok-soft:   rgba(34, 197, 94, 0.10);
+  --mi-alias-warn:      var(--mi-static-amber-500);
+  --mi-alias-warn-soft: rgba(245, 158, 11, 0.12);
+  --mi-alias-danger:    var(--mi-static-red-500);
+  --mi-alias-danger-soft: rgba(239, 68, 68, 0.10);
+  --mi-alias-info:      var(--mi-static-blue-400);
+  --mi-alias-info-soft: rgba(65, 118, 230, 0.10);
+  --mi-alias-oaics:     var(--mi-static-blue-400);   /* 修复未声明: --oaics */
+  --mi-alias-oaics-soft: rgba(65, 118, 230, 0.12);   /* OAICS 高亮 soft 背景 */
+  --mi-alias-oaics-run-border: rgba(65, 118, 230, 0.35); /* OAICS 运行段边框 */
+  --mi-alias-oaics-run-soft:  rgba(65, 118, 230, 0.08);  /* OAICS 运行段背景 */
+  --mi-alias-oaics-ok:       var(--mi-static-pink-500); /* OAICS 成功 (粉) */
+  --mi-alias-oaics-ok-soft:  rgba(236, 72, 153, 0.12); /* OAICS 成功 soft 背景 */
+  --mi-alias-oaics-ok-border: rgba(236, 72, 153, 0.40); /* OAICS 成功边框 */
+
+  /* 7 段链路色别名 */
+  --mi-alias-stage-checkout: var(--mi-static-blue-400);
+  --mi-alias-stage-init:     var(--mi-static-cyan-500);
+  --mi-alias-stage-update:   var(--mi-static-amber-700);
+  --mi-alias-stage-provider: var(--mi-static-orange-500);
+  --mi-alias-stage-approve:  var(--mi-static-magenta-500);
+  --mi-alias-stage-poll:     var(--mi-static-green-500);
+  --mi-alias-stage-resolve:  var(--mi-static-purple-500);
+
+  /* 滚动条 */
+  --mi-alias-scrollbar-thumb:       var(--mi-static-neutral-300);
+  --mi-alias-scrollbar-thumb-hover: var(--mi-static-neutral-400);
+  --mi-alias-scrollbar-thumb-l2:       var(--mi-static-neutral-400);
+  --mi-alias-scrollbar-thumb-hover-l2: var(--mi-static-neutral-500);
+
+  /* 开关 / 圆点 关态轨道 (switch / toggle / progress dot off) */
+  --mi-alias-track-off:     var(--mi-static-neutral-300);
+  --mi-alias-track-off-2:   var(--mi-static-neutral-400);
+
+  /* 提示框前景色 (alert 文字) — 亮色用深色调保证对比度 */
+  --mi-alias-fg-warn:   var(--mi-static-amber-600);
+  --mi-alias-fg-info:   var(--mi-static-blue-600);
+  --mi-alias-fg-danger: var(--mi-static-red-600);
+  --mi-alias-fg-ok:     var(--mi-static-green-600);
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.09);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.15);
+  --shadow-glow: 0 0 0 3px var(--mi-alias-brand-glow);
+
+  /* TitleBar 亚克力 */
+  --mi-alias-titlebar-bg: rgba(255, 255, 255, 0.72);
+  --mi-alias-titlebar-blur: blur(16px);
+
+  color-scheme: light;
+}
+
+/* ── 别名层 (暗色) — 只改别名指向, 静态色不变, 组件 CSS 零改动 ── */
+html[data-theme="dark"] {
+  --mi-alias-bg-base:    var(--mi-static-neutral-900);
+  --mi-alias-bg-app:     var(--mi-static-neutral-900);
+  --mi-alias-bg-panel:   var(--mi-static-neutral-850);
+  --mi-alias-bg-card:    var(--mi-static-neutral-850);
+  --mi-alias-bg-raised:  var(--mi-static-neutral-800);
+  --mi-alias-bg-hover:   var(--mi-static-neutral-800);
+  --mi-alias-bg-active:  var(--mi-static-neutral-700);
+
+  --mi-alias-label-primary:   var(--mi-static-neutral-50);
+  --mi-alias-label-secondary: var(--mi-static-neutral-300);
+  --mi-alias-label-tertiary:  var(--mi-static-neutral-400);
+  --mi-alias-label-dimmed:    var(--mi-static-neutral-500);
+  --mi-alias-label-invert:    var(--mi-static-neutral-900);
+
+  --mi-alias-border-faint:  rgba(255, 255, 255, 0.06);
+  --mi-alias-border-base:   rgba(255, 255, 255, 0.10);
+  --mi-alias-border-strong: rgba(255, 255, 255, 0.16);
+
+  --mi-alias-brand:        var(--mi-static-blue-300);
+  --mi-alias-brand-strong: var(--mi-static-blue-400);
+  --mi-alias-brand-dim:    rgba(147, 180, 253, 0.14);
+  --mi-alias-brand-glow:   rgba(147, 180, 253, 0.22);
+
+  --mi-alias-interactive-hover:  rgba(255, 255, 255, 0.06);
+  --mi-alias-interactive-active: rgba(255, 255, 255, 0.10);
+
+  --mi-alias-ok-soft:    rgba(34, 197, 94, 0.18);
+  --mi-alias-warn-soft:  rgba(245, 158, 11, 0.20);
+  --mi-alias-danger-soft: rgba(239, 68, 68, 0.18);
+  --mi-alias-info-soft:  rgba(65, 118, 230, 0.18);
+  --mi-alias-oaics-soft: rgba(147, 180, 253, 0.18);
+  --mi-alias-oaics-run-border: rgba(147, 180, 253, 0.45);
+  --mi-alias-oaics-run-soft:  rgba(147, 180, 253, 0.14);
+  --mi-alias-oaics-ok:       var(--mi-static-pink-400);
+  --mi-alias-oaics-ok-soft:  rgba(244, 114, 182, 0.16);
+  --mi-alias-oaics-ok-border: rgba(244, 114, 182, 0.45);
+
+  --mi-alias-scrollbar-thumb:       var(--mi-static-neutral-600);
+  --mi-alias-scrollbar-thumb-hover: var(--mi-static-neutral-500);
+  --mi-alias-scrollbar-thumb-l2:       var(--mi-static-neutral-700);
+  --mi-alias-scrollbar-thumb-hover-l2: var(--mi-static-neutral-600);
+
+  /* 暗色关态轨道偏亮 (浅色 track 在暗底不可见) */
+  --mi-alias-track-off:   var(--mi-static-neutral-600);
+  --mi-alias-track-off-2: var(--mi-static-neutral-500);
+
+  /* 提示框前景 — 暗色用更亮的色调保证对比度 */
+  --mi-alias-fg-warn:   #f0a04b;
+  --mi-alias-fg-info:   var(--mi-static-blue-300);
+  --mi-alias-fg-danger: #f06a5a;
+  --mi-alias-fg-ok:     #4fa84f;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+
+  --mi-alias-titlebar-bg: rgba(20, 20, 24, 0.72);
+
+  color-scheme: dark;
+}
+
+/* ── 过渡别名: 旧名 → 新别名 ────────────────────────────────────
+   现有 index.css (2600+ 行) 和 13 个 tsx 的 83 处内联 var() 引用旧名,
+   通过此映射层无需改动即获得正确颜色 (含暗色)。重构期逐视图替换为新别名,
+   最终删除此层。 */
+:root {
+  --bg-base:      var(--mi-alias-bg-base);
+  --bg-app:       var(--mi-alias-bg-app);
+  --bg-panel:     var(--mi-alias-bg-panel);
+  --bg-card:      var(--mi-alias-bg-card);
+  --bg-elev:      var(--mi-alias-bg-panel);  /* 弹层/Sheet 背景 (复用面板色) */
+  --bg-raised:    var(--mi-alias-bg-raised);
+  --bg-hover:     var(--mi-alias-bg-hover);
+  --bg-active:    var(--mi-alias-bg-active);
+
+  --text-1:      var(--mi-alias-label-primary);
+  --text-2:      var(--mi-alias-label-secondary);
+  --text-3:      var(--mi-alias-label-tertiary);
+  --text-invert: var(--mi-alias-label-invert);
+
+  --border:        var(--mi-alias-border-base);
+  --border-strong: var(--mi-alias-border-strong);
+  --border-faint:  var(--mi-alias-border-faint);
+
+  --accent:        var(--mi-alias-brand);
+  --accent-strong: var(--mi-alias-brand-strong);
+  --accent-dim:    var(--mi-alias-brand-dim);
+  --accent-glow:   var(--mi-alias-brand-glow);
+
+  --ok:          var(--mi-alias-ok);
+  --ok-soft:     var(--mi-alias-ok-soft);
+  --warn:        var(--mi-alias-warn);
+  --warn-soft:   var(--mi-alias-warn-soft);
+  --danger:      var(--mi-alias-danger);
+  --danger-soft: var(--mi-alias-danger-soft);
+  --info:        var(--mi-alias-info);
+  --info-soft:   var(--mi-alias-info-soft);
+  --info-dim:    var(--mi-alias-info-soft);   /* 修复未声明: .geo-chip 用 */
+  --muted:       var(--mi-alias-label-tertiary);
+
+  --oaics:       var(--mi-alias-oaics);        /* 修复幽灵变量: 8 处 fallback 不再触发 */
+  --oaics-soft:  var(--mi-alias-oaics-soft);   /* OAICS 高亮 soft 背景 */
+  --oaics-ok:    var(--mi-alias-oaics-ok);      /* OAICS 成功 (粉) */
+  --oaics-ok-soft:  var(--mi-alias-oaics-ok-soft);
+  --oaics-ok-border: var(--mi-alias-oaics-ok-border);
+  --oaics-run-border: var(--mi-alias-oaics-run-border);
+  --oaics-run-soft:  var(--mi-alias-oaics-run-soft);
+
+  /* 开关/圆点 关态轨道 */
+  --track-off:   var(--mi-alias-track-off);
+  --track-off-2: var(--mi-alias-track-off-2);
+
+  /* 提示框前景色 */
+  --fg-warn:   var(--mi-alias-fg-warn);
+  --fg-info:   var(--mi-alias-fg-info);
+  --fg-danger: var(--mi-alias-fg-danger);
+  --fg-ok:     var(--mi-alias-fg-ok);
+
+  --st-checkout: var(--mi-alias-stage-checkout);
+  --st-init:     var(--mi-alias-stage-init);
+  --st-update:    var(--mi-alias-stage-update);
+  --st-provider: var(--mi-alias-stage-provider);
+  --st-approve:  var(--mi-alias-stage-approve);
+  --st-poll:     var(--mi-alias-stage-poll);
+  --st-resolve:  var(--mi-alias-stage-resolve);
+}
+
+/* ::selection 暗色适配 */
+::selection {
+  background: var(--mi-alias-brand-dim);
+  color: var(--mi-alias-label-primary);
+}

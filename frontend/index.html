@@ -7,6 +7,18 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- 防闪屏 (FOUC): 在 React 加载前同步决定主题, 避免亮→暗闪烁。
+       别名层挂在 html[data-theme], 此处设 html.dataset.theme 即刻生效 -->
+  <script>
+    (function () {
+      var t = "dark";
+      try { t = localStorage.getItem("min.theme") || "dark"; } catch (e) {}
+      var dark = t === "dark" || (t === "system" &&
+        window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    })();
+  </script>
 </head>
 <body>
   <div id="root"></div>

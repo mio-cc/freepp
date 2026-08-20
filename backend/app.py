@@ -39,6 +39,8 @@ from api.tokens import router as tokens_router
 from api.paypal import router as paypal_router
 from api.directpay import router as directpay_router
 from api.register import router as register_router
+from api.mail_pool import router as mail_pool_router
+from api.pipeline import router as pipeline_router
 from api.deps import runtime
 from core.config import settings
 from core.orchestrator import AsyncChainOrchestrator, ConnectionManager
@@ -83,31 +85,82 @@ async def lifespan(app: FastAPI):
     runtime.conn_mgr = conn_mgr
     runtime.orchestrator = orchestrator
     runtime.started = True
+    runtime.loop = asyncio.get_event_loop()  # 供后台线程 (注册/支付) 广播 WebSocket 事件
     # 3. 代理池健康检查循环
     await proxy_pool.start_health_loop()
+    # 2b. 密钥/凭据: 从 secrets.json 注入 os.environ (711 代理/api798 卡密/SMS/PayPal 反爬),
+    #     早于 api798 渠道加载, 使前端编辑的卡密路径在此覆盖 REG_API798_MAILBOXES
+    try:
+        from core.secrets_store import secrets_store
+        secrets_store.inject_all_env()
+    except Exception:
+        pass
     # 3b. 注册功能: api798 邮箱提取渠道 (卡密文件经环境变量注入, 不落仓库)
+    #     REG_API798_ENABLED=0 可禁用该内置渠道 (开源项目可按需关闭)
     try:
         from reg import engine as _reg_engine
         from reg.channel_api798 import load_mailboxes, build_channel
+        _api798_on = os.environ.get("REG_API798_ENABLED", "1") != "0"
         _kml = os.environ.get("REG_API798_MAILBOXES", "").strip()
-        if _kml and os.path.isfile(_kml):
+        if _api798_on and _kml and os.path.isfile(_kml):
             _mbs = load_mailboxes(_kml)
             if _mbs:
                 _reg_engine.register_email_channel("api798", build_channel(_mbs))
                 print(f"[min-implant] 注册渠道 api798 已加载 {len(_mbs)} 个邮箱")
     except Exception as _e:
         print(f"[min-implant] 注册渠道 api798 加载失败: {_e}")
+    # 3c. 注册功能: IMAP 邮箱池渠道 (每域独立渠道, 从 mail_pool.json 领用自有邮箱经 IMAP 取码)
+    #     sync_imap_channels 按池状态同步注册/注销 imap:<标签> 渠道;
+    #     运行时邮箱池变更 (增删/启停) 也经此函数同步, 免重启。
+    try:
+        _n = _reg_engine.sync_imap_channels()
+        if _n:
+            print(f"[min-implant] 注册渠道 imap 已加载 {_n} 个 (每邮箱独立渠道: imap:<标签>)")
+    except Exception as _e:
+        print(f"[min-implant] 注册渠道 imap 加载失败: {_e}")
     # 4. 初始健康检查
     try:
         nodes = await proxy_pool.health_check()
         await conn_mgr.broadcast({"type": "proxy_health", "nodes": nodes})
     except Exception:
         pass
+    # 4b. 流量统计定时广播 (每 2s 推送各功能块上传/下传实时值)
+    async def _traffic_loop():
+        while True:
+            try:
+                await asyncio.sleep(2)
+                if runtime.conn_mgr:
+                    traffic = proxy_pool.get_traffic()
+                    await runtime.conn_mgr.broadcast(
+                        {"type": "traffic_update", "traffic": traffic})
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(2)
+    traffic_task = asyncio.create_task(_traffic_loop())
     print(f"[min-implant] 后端已启动 -> http://{settings.host}:{settings.port}")
     print(f"[min-implant] 链路模式: {settings.chain_mode} | curl_cffi: {_has_curl()}")
     print(f"[min-implant] 静态目录: {settings.web_dir}")
+    # 3d. 一键流程守护: 若 pipeline_config.enabled=true 则自动恢复
+    try:
+        from core.pipeline_daemon import pipeline_daemon
+        if pipeline_daemon.config.get("enabled"):
+            pipeline_daemon.start()
+            print(f"[min-implant] 一键流程守护已自动恢复 (enabled=true)")
+    except Exception as _e:
+        print(f"[min-implant] 一键流程守护恢复失败: {_e}")
     yield
     # ---- 关闭 ----
+    traffic_task.cancel()
+    try:
+        await traffic_task
+    except Exception:
+        pass
+    try:
+        from core.pipeline_daemon import pipeline_daemon
+        pipeline_daemon.stop()
+    except Exception:
+        pass
     await proxy_pool.stop_health_loop()
     await orchestrator.shutdown()
     await token_store.close()
@@ -150,6 +203,8 @@ app.include_router(config_router)
 app.include_router(paypal_router)
 app.include_router(directpay_router)
 app.include_router(register_router)
+app.include_router(mail_pool_router)
+app.include_router(pipeline_router)
 
 
 # =============================================================================

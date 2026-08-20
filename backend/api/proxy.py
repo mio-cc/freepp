@@ -15,6 +15,8 @@ REST:
 """
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter
 
 from core.proxy_pool import proxy_pool
@@ -26,6 +28,20 @@ router = APIRouter(prefix="/api/proxy", tags=["proxy"])
 @router.get("/nodes")
 async def list_nodes():
     return {"ok": True, "nodes": proxy_pool.list_nodes()}
+
+
+@router.get("/traffic")
+async def get_traffic():
+    """各功能块 (register/chain/pay/detect) 上传/下传流量快照。"""
+    return {"ok": True, "traffic": proxy_pool.get_traffic()}
+
+
+@router.post("/traffic/reset")
+async def reset_traffic(body: dict | None = None):
+    """重置流量计数; body.block 指定单块, 省略则全部清零。"""
+    block = (body or {}).get("block") if body else None
+    proxy_pool.reset_traffic(block)
+    return {"ok": True, "traffic": proxy_pool.get_traffic()}
 
 
 @router.get("/health")

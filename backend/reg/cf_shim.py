@@ -24,7 +24,7 @@ from curl_cffi.requests import Session as _CSession
 _RETRY_HINTS = (
     "invalid library", "TLS connect error", "SSL_ERROR", "tls connect error",
     "Proxy CONNECT", "ProxyError", "CONNECT aborted", "Failed to perform, curl: (56)",
-    # 网络瞬断 timeout（DDG/mail.tm 直连间歇性超时）：重建 Session 后可能
+    # 网络瞬断 timeout（直连间歇性超时）：重建 Session 后可能
     # 落到不同的 DNS 解析/路由路径，规避瞬时不可达
     "curl: (28)", "ConnectTimeout", "ReadTimeout", "FetchError",
 )

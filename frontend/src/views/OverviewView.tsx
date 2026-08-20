@@ -1,9 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useStore } from "../store/useStore";
-import { api } from "../api/client";
-import { STAGE_ORDER } from "../types";
-
-const MAX_CONCURRENCY = 5;
+import { STAGE_ORDER, MAX_CHAIN_CONCURRENCY } from "../types";
 
 export function OverviewView() {
   const chainStates = useStore((s) => s.chainStates);
@@ -14,9 +11,6 @@ export function OverviewView() {
   const selectedTokenIds = useStore((s) => s.selectedTokenIds);
   const pushLog = useStore((s) => s.pushLog);
   const setView = useStore((s) => s.setView);
-  const batchRunning = useStore((s) => s.batchRunning);
-  const setBatchRunning = useStore((s) => s.setBatchRunning);
-  const [busy, setBusy] = useState(false);
 
   const chainList = useMemo(
     () => Object.entries(chainStates).map(([id, c]) => ({ id, ...c })),
@@ -53,55 +47,15 @@ export function OverviewView() {
 
   const recentLogs = useMemo(() => logLines.slice(-15), [logLines]);
 
-  const handleBatchStart = async () => {
-    const ids = Array.from(selectedTokenIds);
-    if (ids.length === 0) {
-      pushLog("未选择令牌，请先前往令牌页选择要运行的令牌", "warn");
-      setView("tokens");
-      return;
-    }
-    setBusy(true);
-    try {
-      await api("/api/chain/batch", "POST", { token_ids: ids, branch: useStore.getState().activeBranch });
-      pushLog(`批量启动 ${ids.length} 个令牌`, "ok");
-      setBatchRunning(true);
-    } catch (e) {
-      pushLog(`批量启动失败: ${e}`, "err");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleStopAll = async () => {
-    setBusy(true);
-    try {
-      await api("/api/chain/stop", "POST", {});
-      pushLog("已发送停止全部指令", "info");
-      setBatchRunning(false);
-    } catch (e) {
-      pushLog(`停止失败: ${e}`, "err");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const activeRatio =
-    MAX_CONCURRENCY > 0 ? (activeCount / MAX_CONCURRENCY) * 100 : 0;
+    MAX_CHAIN_CONCURRENCY > 0 ? (activeCount / MAX_CHAIN_CONCURRENCY) * 100 : 0;
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h2 className="page-title">总览</h2>
           <p className="page-sub">系统状态概览与关键指标</p>
-        </div>
-        <div className="page-actions">
-          <button className="btn btn-primary" onClick={handleBatchStart} disabled={busy || batchRunning}>
-            批量启动
-          </button>
-          <button className="btn btn-danger" onClick={handleStopAll} disabled={busy || !batchRunning}>
-            停止全部
-          </button>
         </div>
       </div>
 
@@ -110,7 +64,7 @@ export function OverviewView() {
           <span className="stat-label">活跃链路</span>
           <div className="stat-value">
             {activeCount}
-            <span style={{ color: "var(--text-3)", fontSize: 14 }}> / {MAX_CONCURRENCY}</span>
+            <span style={{ color: "var(--text-3)", fontSize: 14 }}> / {MAX_CHAIN_CONCURRENCY}</span>
           </div>
           <div className="stat-foot">
             <div className="progress" style={{ flex: 1 }}>

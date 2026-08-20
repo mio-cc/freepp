@@ -102,7 +102,7 @@ export function DirectView() {
         </div>
       </div>
 
-      <div className="card settings-panel">
+      <div className="card">
         <div className="card-head">
           <span className="card-title">直卡 · 两段管道</span>
           <span className="card-hint">
@@ -118,7 +118,7 @@ export function DirectView() {
                 value={[branch?.billing_country || "PH"]}
                 options={countryOptions}
                 autoLabel="AUTO · 跟随 checkout 段"
-                onChange={(v) => onSaveFlagsWrapper(v, handleSaveFlags, setSavingFlags)}
+                onChange={(v) => onSaveFlagsWrapper(v, handleSaveFlags)}
               />
               <span className="muted" style={{ fontSize: 11.5, width: 90, flexShrink: 0 }}>
                 固定账单国
@@ -193,17 +193,12 @@ export function DirectView() {
   );
 }
 
-function onSaveFlagsWrapper(
+async function onSaveFlagsWrapper(
   v: string[],
-  save: (patch: Partial<BranchCfg>) => void,
-  setSaving: (b: boolean) => void
+  save: (patch: Partial<BranchCfg>) => void | Promise<void>
 ) {
-  setSaving(true);
-  try {
-    save({ billing_country: (v[0] || "auto") === "auto" ? "auto" : v[0] });
-  } finally {
-    setSaving(false);
-  }
+  // save 自行管理 saving 指示 (async), 此处仅需透传补丁
+  await save({ billing_country: (v[0] || "auto") === "auto" ? "auto" : v[0] });
 }
 
 function makeMockBranch(): BranchCfg {

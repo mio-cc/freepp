@@ -134,6 +134,17 @@ class CardStore:
             conn.commit()
             return cur.rowcount > 0
 
+    def bulk_delete_cards(self, card_ids: list[int]) -> int:
+        """批量删除卡片，返回实际删除条数。"""
+        if not card_ids:
+            return 0
+        with self._lock, self._connect() as conn:
+            placeholders = ",".join("?" * len(card_ids))
+            cur = conn.execute(
+                f"DELETE FROM cards WHERE id IN ({placeholders})", card_ids)
+            conn.commit()
+            return cur.rowcount
+
     def reset_uses(self) -> int:
         with self._lock, self._connect() as conn:
             cur = conn.execute("UPDATE cards SET uses=0, updated_at=datetime('now')")

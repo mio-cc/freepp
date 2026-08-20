@@ -8,6 +8,9 @@ export const STAGE_ORDER = [
 ] as const;
 export type StageName = typeof STAGE_ORDER[number];
 
+/** 提链并发上限 (TitleBar/Overview 共用; 与后端 chain.max_concurrent 对齐) */
+export const MAX_CHAIN_CONCURRENCY = 10;
+
 /** oaics custom Checkout 5 段链路顺序 (纯 HTTP, 无 init/update/approve/poll) */
 export const OAICS_STAGE_ORDER = [
   "checkout", "taxes", "provider", "confirm", "resolve"
@@ -139,8 +142,12 @@ export interface Stats {
   stageMatrix: Record<string, Record<string, { ok: number; fail: number }>>;
 }
 
+/** 代理流量统计 (按功能分块: register/chain/pay/detect) */
+export type Traffic = Record<string, { up: number; down: number }>;
+
 /** 样本记录 */
 export interface Sample {
+  id?: number;
   ts: string;
   email: string;
   success: boolean;
@@ -161,6 +168,7 @@ export interface Sample {
 
 /** 库存记录 */
 export interface InventoryRecord {
+  id?: number;
   ba_id: string;
   email: string;
   country: string;
@@ -209,7 +217,18 @@ export const BA_STEP_CN: Record<string, string> = {
   FLOW_EXCEPTION: "流程异常",
   AUTHORIZE_EMPTY: "授权空结果",
   BUYER_NOT_SET: "未设买家",
+  BA_DEAD: "账号失效",
+  NETWORK_ERROR: "网络错误",
+  stale_running: "超时挂起",
+  geo_mismatch: "国家不符",
+  IDENTITY_ELEVATION: "身份验证",
+  SIGNUP_RETRYABLE_FAILURE: "注册可重试",
 };
+/** step → 中文, 未命中映射时回退原值(避免显示 undefined/空白) */
+export function baStepCn(step: string | undefined): string {
+  if (!step) return "—";
+  return BA_STEP_CN[step] || step;
+}
 export interface BAAuthRecord {
   ba_token: string;
   email: string;
@@ -247,6 +266,7 @@ export interface SMAQuote {
 export interface BAAuthConfig {
   sms_provider: string;
   sms_api_key?: string; // 接码平台 API key (留空回落 .env)
+  grizzly_api_key?: string; // GrizzlySMS API key (留空回落 .env 的 GRIZZLYSMS_API_KEY)
   sms_price: string; // 语义: 区间上限 (USD/号), 取号按平台实际价格升序从区间内最低价开始
   sms_price_min?: string; // 区间下限 (USD/号), 低于此价的号不取 (默认 "0" = 不限)
   sms_max_attempts?: number; // 取号重试轮数 (默认 12; 每轮区间内供应商全失败后冷却 2s 重试)
@@ -280,6 +300,7 @@ export interface BABaSnap {
   error: string;
   source: string;
   last_msg: string;
+  last_level: string;
 }
 
 /* ==========================================================================
@@ -325,6 +346,61 @@ export interface RegStatus {
   last_seq: number;
 }
 
+/* ==========================================================================
+   邮箱池 (自定义 IMAP 邮箱接入)
+   ========================================================================== */
+export type AliasMode = "direct" | "catchall";
+
+export interface Mailbox {
+  id: string;
+  label: string;
+  imap_host: string;
+  imap_port: number;
+  imap_ssl: boolean;
+  username: string;
+  password: string;
+  alias_mode: AliasMode;
+  catchall_domain: string;
+  sender_whitelist: string[];
+  subject_whitelist: string[];
+  code_regex: string;
+  enabled: boolean;
+  status: "unknown" | "ok" | "fail" | "disabled";
+  last_check: string;
+  last_error: string;
+  used_count: number;
+  created_at: string;
+}
+
+export interface MailPoolRules {
+  sender_whitelist: string[];
+  subject_whitelist: string[];
+  code_regex: string;
+}
+
+export interface MailPoolStats {
+  total: number;
+  enabled: number;
+  disabled: number;
+  ok_count: number;
+  fail: number;
+  used_total: number;
+}
+
+export interface ImapPreset {
+  label: string;
+  imap_host: string;
+  imap_port: number;
+  imap_ssl: boolean;
+}
+
+export interface MailPoolData {
+  ok: boolean;
+  rules: MailPoolRules;
+  mailboxes: Mailbox[];
+  presets: ImapPreset[];
+}
+
 /** 视图名称 */
 export type ViewName =
   | "overview" | "chains" | "logs"
@@ -334,8 +410,9 @@ export type ViewName =
   | "bizum" | "gopay" | "naver_pay"
   | "gcash" | "grabpay" | "qris"
   | "direct_pay"
-  | "register"
-  | "analytics" | "samples" | "settings";
+  | "register" | "mailpool"
+  | "pipeline"
+  | "analytics" | "samples" | "settings" | "secrets";
 
 /* ==========================================================================
    提链分支 (PayPal 提炼 / MoMo 提链 / Grok 链路 / PIX 二维码)
@@ -379,6 +456,7 @@ export interface BranchCfg {
   token_source: string;    // token 库来源标签
   require_zero: boolean;   // 金额校验
   channel_check: boolean;  // 支付渠道校验
+  channel_probe?: boolean; // init 后提前渠道探测 (update 段仍有渠道校验); 可选, 旧配置无此字段时回落 false
   dual_init: boolean;      // 双 init (init0 借道 -> init1 验真 -> init_t 过渡)
   init0_ccs: string[];     // init0 借道出口
   init1_ccs: string[];     // init1 验真出口
@@ -386,6 +464,10 @@ export interface BranchCfg {
   follow_checkout: boolean;// 分段跟随: 除 update 外所有段跟随 checkout
   billing_country: string; // 账单国: "auto"=跟随 checkout 段, 否则固定国家
   attempts: number; // 总尝试 (每 Token 最大尝试轮数)
+  /** checkout 建单模式: auto/host_inline/host_no_inline/cust_inline/cust_no_inline
+   *  仅影响 cs_live_ 七段路径的 checkout 参数 (ui_mode + promo_inline);
+   *  oaics_ 会话由服务端下发时仍自动走 oaics 五段, 不受此字段影响 */
+  checkout_mode?: string;
   stages: Partial<Record<StageName, StageCfg>>;
   /** oaics custom Checkout 五段子配置 */
   oaics?: OaicsBranchCfg;
@@ -396,4 +478,53 @@ export interface OaicsBranchCfg {
   billing_country: string; // oaics 账单国: "auto"=跟随 checkout 段
   attempts: number;        // oaics 每 Checkout 最大尝试轮数
   stages: Partial<Record<OaicsStageName, StageCfg>>;
+}
+
+/* ==========================================================================
+   一键流程 (注册 → 提链 → 支付) 流水线守护
+   ========================================================================== */
+
+export interface PipelineConfig {
+  enabled: boolean;
+  unlimited: boolean;          // True: 无限跑; False: 达 target 自动停
+  target_accounts: number;     // unlimited=False 时的目标产账号数
+  tick_interval: number;       // 守护循环轮询间隔 (秒)
+  reg_batch_size: number;      // 每批注册数量
+  reg_email_mode: string;      // 邮箱渠道 (imap:<标签>，留空自动取第一个)
+  reg_cooldown: number;        // 注册冷却 (秒)
+  reg_proxy: string;           // 注册代理
+  reg_country: string;        // 注册出口国家 (auto=随机; 指定国家码则用 711 按国构造)
+  chain_batch_size: number;    // 每批提链账号数
+  chain_concurrent: number;    // 提链并发上限
+  chain_branch: string;        // 提链分支
+  chain_attempts: number;      // 单账号提链尝试次数
+  chain_partial_ok: boolean;   // False: 攒齐一批再跑; True: 不足也跑
+  pay_max_concurrent: number;  // 支付授权并发上限
+}
+
+export interface PipelineStats {
+  reg_started: number;
+  reg_success: number;
+  chain_started: number;
+  chain_success: number;
+  pay_started: number;
+  pay_success: number;
+}
+
+export interface PipelineStageRunning {
+  reg: boolean;
+  chain: boolean;
+  pay: boolean;
+}
+
+export interface PipelineStatus {
+  ok: boolean;
+  enabled: boolean;
+  running: boolean;
+  config: PipelineConfig;
+  stats: PipelineStats;
+  stage_running: PipelineStageRunning;
+  pay_concurrent: number;
+  last_tick: number;
+  last_error: string;
 }

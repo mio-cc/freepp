@@ -1,11 +1,23 @@
+import { useState } from "react";
 import { useStore } from "../../store/useStore";
 import type { ViewName } from "../../types";
+
+const COLLAPSE_KEY = "min.sidebar.collapsed";
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 const NAV_GROUPS: { label: string; items: { view: ViewName; icon: string; text: string }[] }[] = [
   {
     label: "监控",
     items: [
       { view: "overview", icon: "grid", text: "总览" },
+      { view: "pipeline", icon: "bolt", text: "一键流程" },
       { view: "chains", icon: "chains", text: "链路监控" },
       { view: "logs", icon: "logs", text: "实时日志" },
     ],
@@ -17,6 +29,7 @@ const NAV_GROUPS: { label: string; items: { view: ViewName; icon: string; text: 
       { view: "proxy", icon: "proxy", text: "代理池" },
       { view: "inventory", icon: "inventory", text: "成功库存" },
       { view: "register", icon: "register", text: "账号注册" },
+      { view: "mailpool", icon: "mail", text: "邮箱池" },
     ],
   },
   {
@@ -56,7 +69,10 @@ const NAV_GROUPS: { label: string; items: { view: ViewName; icon: string; text: 
   },
   {
     label: "系统",
-    items: [{ view: "settings", icon: "settings", text: "设置" }],
+    items: [
+      { view: "secrets", icon: "key", text: "密钥与凭据" },
+      { view: "settings", icon: "settings", text: "设置" },
+    ],
   },
 ];
 
@@ -68,6 +84,7 @@ const ICONS: Record<string, string> = {
   proxy: `<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M2 8h12M8 2c2.2 2.2 2.2 9.8 0 12M8 2c-2.2 2.2-2.2 9.8 0 12" fill="none" stroke="currentColor" stroke-width="1.1"/>`,
   inventory: `<path d="M2 4l6-2.2L14 4v8L8 14.2 2 12V4z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M2 4l6 2.2L14 4M8 6.2V14" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>`,
   register: `<circle cx="5.5" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M2 12.5a3.5 3.5 0 0 1 7 0" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><path d="M11 4.5l2 2M13 2l-3.4 3.4 2 2L15 4l-2-2z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><line x1="11.4" y1="6.4" x2="13.4" y2="8.4" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>`,
+  mail: `<rect x="1.5" y="3" width="13" height="10" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M1.8 4L8 8.5 14.2 4" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>`,
   momo: `<rect x="2" y="3" width="12" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.1"/><circle cx="5.5" cy="8" r="1.2" fill="currentColor"/><circle cx="10.5" cy="8" r="1.2" fill="currentColor"/>`,
   grok: `<path d="M8 2L3 14h2.5L8 8l2.5 6H13L8 2z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>`,
   pix: `<rect x="2" y="2" width="5" height="5" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.1"/><rect x="9" y="2" width="5" height="5" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.1"/><rect x="2" y="9" width="5" height="5" rx="0.8" fill="none" stroke="currentColor" stroke-width="1.1"/><rect x="9.5" y="9.5" width="1.5" height="1.5" fill="currentColor"/><rect x="12" y="9.5" width="1.5" height="1.5" fill="currentColor"/><rect x="9.5" y="12" width="1.5" height="1.5" fill="currentColor"/>`,
@@ -87,6 +104,8 @@ const ICONS: Record<string, string> = {
   analytics: `<path d="M2 13V3M2 13h12" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><rect x="4" y="9" width="2.5" height="4" fill="currentColor" opacity="0.6"/><rect x="7.5" y="6" width="2.5" height="7" fill="currentColor" opacity="0.6"/><rect x="11" y="8" width="2.5" height="5" fill="currentColor" opacity="0.6"/>`,
   samples: `<path d="M3 2h7l3 3v9H3V2z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M10 2v3h3" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><line x1="5" y1="8" x2="11" y2="8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="5" y1="10.5" x2="9" y2="10.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>`,
   settings: `<circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M3 13l1.5-1.5M11.5 4.5L13 3" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>`,
+  key: `<circle cx="5" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M7.5 8h6M11 8v2M13 8v1.5" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>`,
+  bolt: `<path d="M8 1.5L3.5 9h4L6.5 14.5 12.5 7h-4L9.5 1.5z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>`,
 };
 
 export function Sidebar() {
@@ -96,6 +115,39 @@ export function Sidebar() {
   const nodes = useStore((s) => s.nodes);
   const chainStates = useStore((s) => s.chainStates);
   const stats = useStore((s) => s.stats);
+  const [collapsed, setCollapsed] = useState<boolean>(readCollapsed);
+  // 折叠动画状态机 (对齐 SidebarRoot.tsx):
+  //  折叠: fading(宽内容淡出 150ms) → settled 后切 collapsed
+  //  展开: 移除 collapsed → wide-in(宽内容淡入 200ms)
+  const [fading, setFading] = useState(false);
+  const [wideIn, setWideIn] = useState(false);
+
+  const toggleCollapsed = () => {
+    if (collapsed) {
+      // 展开: 先取消 collapsed (rail 滑出), 再触发 wide-in 淡入
+      setCollapsed(false);
+      setWideIn(true);
+      window.setTimeout(() => setWideIn(false), 220);
+    } else {
+      // 折叠: 先 fading 淡出宽内容, settle 后切 collapsed
+      setFading(true);
+      window.setTimeout(() => {
+        setFading(false);
+        setCollapsed(true);
+        try {
+          localStorage.setItem(COLLAPSE_KEY, "1");
+        } catch {
+          /* ignore */
+        }
+      }, 150);
+      return;
+    }
+    try {
+      localStorage.setItem(COLLAPSE_KEY, "0");
+    } catch {
+      /* ignore */
+    }
+  };
 
   const activeChains = Object.values(chainStates).filter((c) => c.status === "running").length;
   const totalSuccess = stats.success || 0;
@@ -108,20 +160,36 @@ export function Sidebar() {
     (c) => c.status === "success" && c.url && c.url.includes("ba_token=BA-")
   ).length;
 
+  // 折叠态下有活动计数的项在图标右上角显示小圆点
+  const dots: Partial<Record<ViewName, boolean>> = {
+    chains: activeChains > 0,
+    paypal: pendingBa > 0,
+  };
+
   const counts: Partial<Record<ViewName, { text: string; cls?: string }>> = {
     chains: { text: String(activeChains || ""), cls: activeChains > 0 ? "nav-count-live" : "" },
     tokens: { text: String(tokens.length || "") },
     proxy: { text: String(nodes.length || "") },
     inventory: { text: String(totalSuccess), cls: "nav-count-gold" },
     paypal: { text: String(pendingBa || ""), cls: pendingBa > 0 ? "nav-count-live" : "" },
-    paypal_extract: { text: String(activeChains || ""), cls: activeChains > 0 ? "nav-count-live" : "" },
   };
 
   return (
-    <nav className="sidebar">
+    <nav className={`sidebar ${collapsed ? "collapsed" : ""} ${fading ? "fading" : ""} ${wideIn ? "wide-in" : ""}`}>
       <div className="sidebar-brand">
         <span className="brand-mark" />
         <span className="brand-text">控制台</span>
+        <button
+          type="button"
+          className="sidebar-toggle"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "展开侧边栏" : "收窄侧边栏"}
+          title={collapsed ? "展开侧边栏" : "收窄侧边栏"}
+        >
+          <svg viewBox="0 0 16 16" className={collapsed ? "chev-collapsed" : ""} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 3.5L5.5 8l4.5 4.5" />
+          </svg>
+        </button>
       </div>
       {NAV_GROUPS.map((group) => (
         <div key={group.label} className="sidebar-group">
@@ -131,14 +199,17 @@ export function Sidebar() {
               key={item.view}
               className={`nav-item ${currentView === item.view ? "active" : ""}`}
               onClick={() => setView(item.view)}
+              title={collapsed ? item.text : undefined}
+              aria-label={item.text}
             >
               <svg viewBox="0 0 16 16" className="nav-icon" dangerouslySetInnerHTML={{ __html: ICONS[item.icon] || "" }} />
               <span className="nav-text">{item.text}</span>
-              {counts[item.view]?.text && (
+              {counts[item.view]?.text && !collapsed && (
                 <span className={`nav-count ${counts[item.view]?.cls || ""}`}>
                   {counts[item.view]?.text}
                 </span>
               )}
+              {collapsed && dots[item.view] && <span className="nav-dot" />}
             </a>
           ))}
         </div>

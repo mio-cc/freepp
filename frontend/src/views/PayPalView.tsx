@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useStore } from "../store/useStore";
 import { api } from "../api/client";
 import type { BAAuthRecord, BAAuthConfig, BAStep, SMAQuote, BAFeedItem, BABaSnap } from "../types";
-import { BA_STEPS, BA_STEP_CN } from "../types";
+import { BA_STEPS, baStepCn } from "../types";
 
 /* ── 授权监控日志类型 (类型定义在 types, store 持有全局实例) ── */
 
@@ -59,7 +59,7 @@ function RunningChip({ r }: { r: BAAuthRecord }) {
     >
       <span className="spinner" />
       <code className="mono">{r.ba_token.slice(0, 14)}…</code>
-      <span>{BA_STEP_CN[r.step]}</span>
+      <span>{baStepCn(r.step)}</span>
       <span className="tag">{r.identity_country || r.country || "?"}</span>
       {r.last_msg && <span className="feed-msg">{r.last_msg}</span>}
       <span className="feed-ts">
@@ -97,6 +97,7 @@ export function PayPalView() {
   const [config, setConfig] = useState<BAAuthConfig>({
     sms_provider: "smsbower",
     sms_api_key: "",
+    grizzly_api_key: "",
     sms_price: "0.05",
     sms_price_min: "0",
     sms_max_attempts: 12,
@@ -237,13 +238,18 @@ export function PayPalView() {
 
   // 配置变更自动保存到后端 (落盘, 下次会话自动恢复); 1s 防抖避免连续输入打爆接口
   const saveConfigTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [configSaveState, setConfigSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [showApiKey, setShowApiKey] = useState(false);
   useEffect(() => {
     if (saveConfigTimer.current) clearTimeout(saveConfigTimer.current);
     saveConfigTimer.current = setTimeout(async () => {
+      setConfigSaveState("saving");
       try {
         await api("/api/paypal/ba/config", "POST", config);
+        setConfigSaveState("saved");
       } catch {
-        /* 后端不可用时忽略 */
+        // 原实现静默吞错致用户以为已存; 现显示失败态, 用户能感知需重试
+        setConfigSaveState("error");
       }
     }, 1000);
     return () => {
@@ -260,6 +266,16 @@ export function PayPalView() {
       fetchBaRecords();
     }
   }, [pendingFromChains.length, fetchBaRecords]);
+
+  // 详情弹层打开时支持 Esc 关闭
+  useEffect(() => {
+    if (!detailRecord) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDetailRecord(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [detailRecord]);
 
   // 国家元数据 (sms/proxy 可用性)
   const loadCountryMeta = useCallback(async () => {
@@ -299,9 +315,15 @@ export function PayPalView() {
         const items: BAFeedItem[] = [];
         const next = new Map<string, BABaSnap>();
         for (const r of records) {
-          const snap: BABaSnap = { status: r.status, step: r.step, error: r.error, source: r.source || "", last_msg: r.last_msg || "" };
+          const snap: BABaSnap = {
+            status: r.status, step: r.step, error: r.error,
+            source: r.source || "", last_msg: r.last_msg || "",
+            last_level: r.last_level || "info",
+          };
           next.set(r.ba_token, snap);
           const p = prev?.get(r.ba_token);
+          // 后端 last_level (info/warn/err) 映射为 feed 级别, 不再一律 info (否则告警/错误看不见)
+          const lvl = (r.last_level === "warn" ? "warn" : r.last_level === "err" ? "err" : "info") as BAFeedItem["level"];
           if (!p) {
             items.push({
               ts: Date.now(), token: r.ba_token, level: "info",
@@ -311,7 +333,7 @@ export function PayPalView() {
           }
           if (p.status !== r.status) {
             if (r.status === "running") {
-              items.push({ ts: Date.now(), token: r.ba_token, level: "info", msg: `授权启动 · 步骤 ${BA_STEP_CN[r.step]}` });
+              items.push({ ts: Date.now(), token: r.ba_token, level: "info", msg: `授权启动 · 步骤 ${baStepCn(r.step)}` });
             } else if (r.status === "success") {
               items.push({ ts: Date.now(), token: r.ba_token, level: "ok", msg: "授权成功 ✓" });
             } else if (r.status === "failed") {
@@ -320,9 +342,9 @@ export function PayPalView() {
               items.push({ ts: Date.now(), token: r.ba_token, level: "warn", msg: "重新入队 (重试)" });
             }
           } else if (r.status === "running" && p.step !== r.step) {
-            items.push({ ts: Date.now(), token: r.ba_token, level: "info", msg: `步骤 → ${BA_STEP_CN[r.step]}${r.last_msg ? ` · ${r.last_msg}` : ""}` });
+            items.push({ ts: Date.now(), token: r.ba_token, level: lvl, msg: `步骤 → ${baStepCn(r.step)}${r.last_msg ? ` · ${r.last_msg}` : ""}` });
           } else if (r.status === "running" && r.last_msg && p.last_msg !== r.last_msg) {
-            items.push({ ts: Date.now(), token: r.ba_token, level: "info", msg: r.last_msg });
+            items.push({ ts: Date.now(), token: r.ba_token, level: lvl, msg: r.last_msg });
           } else if (r.status === "failed" && p.error !== r.error) {
             items.push({ ts: Date.now(), token: r.ba_token, level: "err", msg: `失败更新: ${r.error || ""}` });
           }
@@ -353,7 +375,12 @@ export function PayPalView() {
       if (!cc) return;
       setQuoteLoading(cc);
       try {
-        const res = await api(`/api/paypal/sms/quote?country=${cc}`, "GET");
+        const provider =
+          config.sms_provider === "grizzly" ? "grizzly" : "smsbower";
+        const res = await api(
+          `/api/paypal/sms/quote?country=${cc}&provider=${provider}`,
+          "GET"
+        );
         if (res && Array.isArray(res.quotes)) {
           setQuotes((q) => ({ ...q, [cc]: res.quotes }));
         } else {
@@ -365,7 +392,7 @@ export function PayPalView() {
         setQuoteLoading("");
       }
     },
-    []
+    [config.sms_provider]
   );
 
   const ccOptions = useCallback((): string[] => {
@@ -678,7 +705,7 @@ export function PayPalView() {
       : "—";
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h2 className="page-title">PayPal 支付授权</h2>
@@ -1021,7 +1048,7 @@ export function PayPalView() {
                         </span>
                       </td>
                       <td>
-                        <span className="tag">{BA_STEP_CN[r.step]}</span>
+                        <span className="tag">{baStepCn(r.step)}</span>
                       </td>
                       <td>
                         <span className={`badge ${CAPTCHA_BADGE[r.captcha_type] || "badge-muted"}`}>
@@ -1105,43 +1132,82 @@ export function PayPalView() {
         <div className="card">
           <div className="card-head">
             <span className="card-title">授权配置</span>
+            <span
+              className="setting-hint"
+              style={{ marginLeft: "auto" }}
+              data-save-state={configSaveState}
+            >
+              {configSaveState === "saving" && "保存中…"}
+              {configSaveState === "saved" && "已保存 ✓"}
+              {configSaveState === "error" && "保存失败 ✕"}
+            </span>
           </div>
           <div className="card-body">
+            {/* ── 接码设置 ── */}
+            <div className="section-head">
+              <span className="section-title">接码设置</span>
+            </div>
             <div className="setting-row">
               <span className="setting-label">接码平台</span>
               <div className="setting-control">
                 <select
                   className="select"
                   value={config.sms_provider}
-                  onChange={(e) =>
-                    setConfig({ ...config, sms_provider: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setConfig({ ...config, sms_provider: e.target.value });
+                    setQuotes({}); // 切换平台后清缓存, 报价按新平台重取
+                  }}
                 >
                   <option value="smsbower">SMSBower (已接入)</option>
+                  <option value="grizzly">GrizzlySMS (已接入)</option>
                   <option value="sms_activate" disabled>SMS-Activate (未接入)</option>
                   <option value="5sim" disabled>5SIM (未接入)</option>
                 </select>
               </div>
             </div>
             <div className="setting-row">
-              <span className="setting-label">接码平台 API Key</span>
+              <span className="setting-label">
+                {config.sms_provider === "grizzly" ? "GrizzlySMS API Key" : "接码平台 API Key"}
+              </span>
               <div className="setting-control">
                 <input
                   className="input"
-                  type="password"
-                  value={config.sms_api_key || ""}
-                  placeholder="留空使用 backend/ba_paypal/.env 中的 key"
+                  type={showApiKey ? "text" : "password"}
+                  value={
+                    (config.sms_provider === "grizzly"
+                      ? config.grizzly_api_key
+                      : config.sms_api_key) || ""
+                  }
+                  placeholder={
+                    config.sms_provider === "grizzly"
+                      ? "留空使用 .env 的 GRIZZLYSMS_API_KEY"
+                      : "留空使用 backend/ba_paypal/.env 中的 key"
+                  }
                   onChange={(e) =>
-                    setConfig({ ...config, sms_api_key: e.target.value })
+                    setConfig(
+                      config.sms_provider === "grizzly"
+                        ? { ...config, grizzly_api_key: e.target.value }
+                        : { ...config, sms_api_key: e.target.value }
+                    )
                   }
                   style={{ width: 260 }}
                 />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setShowApiKey((v) => !v)}
+                  aria-label={showApiKey ? "隐藏密钥" : "显示密钥"}
+                  title={showApiKey ? "隐藏密钥" : "显示密钥"}
+                  style={{ marginLeft: 6 }}
+                >
+                  {showApiKey ? "🙈" : "👁"}
+                </button>
                 <span className="setting-hint">保存在前端 config, 授权时覆盖 .env (仅本次会话)</span>
               </div>
             </div>
             <div className="setting-row">
               <span className="setting-label">接码价格区间 (USD/号)</span>
-              <div className="setting-control" style={{ minWidth: 380 }}>
+              <div className="setting-control">
                 <div className="range-dual-wrap">
                   <div className="range-dual">
                     <div className="range-dual-track" />
@@ -1207,6 +1273,7 @@ export function PayPalView() {
                 <input
                   className="input"
                   type="number"
+                  min={5}
                   value={config.sms_timeout}
                   onChange={(e) =>
                     setConfig({
@@ -1215,6 +1282,7 @@ export function PayPalView() {
                     })
                   }
                 />
+                <span className="setting-hint">单号等待验证码超时后换下一号</span>
               </div>
             </div>
             <div className="setting-row">
@@ -1235,6 +1303,11 @@ export function PayPalView() {
                 />
                 <span className="setting-hint">每轮 = 区间内全部价位升序试一遍; 失败冷却 2s 再下一轮</span>
               </div>
+            </div>
+
+            {/* ── 国家与代理 ── */}
+            <div className="section-head" style={{ marginTop: 12 }}>
+              <span className="section-title">国家与代理</span>
             </div>
             <div className="setting-row">
               <span className="setting-label">跟随提链国家</span>
@@ -1310,8 +1383,34 @@ export function PayPalView() {
                     <option key={cc} value={cc}>{cc}</option>
                   ))}
                 </select>
-                <span className="setting-hint">默认跟随出口国家</span>
+                <span className="setting-hint">
+                  {config.sms_country
+                    ? "手动指定接码国 (号码国家码)"
+                    : "默认跟随出口国家"}
+                </span>
               </div>
+            </div>
+            <div className="setting-row">
+              <span className="setting-label">代理类型</span>
+              <div className="setting-control">
+                <select
+                  className="select"
+                  value={config.proxy_type}
+                  onChange={(e) =>
+                    setConfig({ ...config, proxy_type: e.target.value })
+                  }
+                >
+                  <option value="711_sticky">711 住宅代理 (Sticky) — 默认</option>
+                  <option value="singbox">sing-box 节点优先</option>
+                  <option value="qg">QG 隧道优先</option>
+                </select>
+                <span className="setting-hint">授权段出口代理来源; 与提链段独立选择</span>
+              </div>
+            </div>
+
+            {/* ── 授权流程 ── */}
+            <div className="section-head" style={{ marginTop: 12 }}>
+              <span className="section-title">授权流程</span>
             </div>
             <div className="setting-row">
               <span className="setting-label">并发上限</span>
@@ -1348,22 +1447,6 @@ export function PayPalView() {
               </div>
             </div>
             <div className="setting-row">
-              <span className="setting-label">代理类型</span>
-              <div className="setting-control">
-                <select
-                  className="select"
-                  value={config.proxy_type}
-                  onChange={(e) =>
-                    setConfig({ ...config, proxy_type: e.target.value })
-                  }
-                >
-                  <option value="711_sticky">711 住宅代理 (Sticky) — 默认</option>
-                  <option value="singbox">sing-box 节点优先</option>
-                  <option value="qg">QG 隧道优先</option>
-                </select>
-              </div>
-            </div>
-            <div className="setting-row">
               <span className="setting-label">Captcha 策略</span>
               <div className="setting-control">
                 <select
@@ -1379,6 +1462,7 @@ export function PayPalView() {
                   <option value="frontend_disable">frontend_disable (本地绕过, 8/11 成功路径)</option>
                   <option value="manual_required">manual_required (人工验证)</option>
                 </select>
+                <span className="setting-hint">8/11 = 历史成功率; frontend_disable 无感绕过</span>
               </div>
             </div>
             <div className="setting-row">
@@ -1387,6 +1471,7 @@ export function PayPalView() {
                 <input
                   className="input"
                   type="number"
+                  min={0}
                   value={config.max_retries}
                   onChange={(e) =>
                     setConfig({
@@ -1395,6 +1480,7 @@ export function PayPalView() {
                     })
                   }
                 />
+                <span className="setting-hint">单流程内换卡/换流的授权重试次数</span>
               </div>
             </div>
             <div className="setting-row">
@@ -1412,6 +1498,7 @@ export function PayPalView() {
                     })
                   }
                 />
+                <span className="setting-hint">BUYER_NOT_SET 后整流程重建重跑的次数</span>
               </div>
             </div>
             <div className="setting-row">
@@ -1501,7 +1588,7 @@ export function PayPalView() {
                 </div>
                 <div className="detail-row">
                   <span className="dr-label">当前步骤</span>
-                  <span className="dr-value">{BA_STEP_CN[detailRecord.step]}</span>
+                  <span className="dr-value">{baStepCn(detailRecord.step)}</span>
                 </div>
                 <div className="detail-row">
                   <span className="dr-label">Captcha 类型</span>
@@ -1579,7 +1666,7 @@ export function PayPalView() {
                     }`}
                   >
                     <span className="ba-progress-dot" />
-                    <span className="ba-progress-label">{BA_STEP_CN[step]}</span>
+                    <span className="ba-progress-label">{baStepCn(step)}</span>
                   </div>
                 );
               })}

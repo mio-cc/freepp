@@ -51,7 +51,7 @@ export function ChainsView() {
   };
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h2 className="page-title">链路监控</h2>

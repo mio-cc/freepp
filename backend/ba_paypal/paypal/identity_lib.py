@@ -116,7 +116,20 @@ def _country_email_domain(country: str) -> Optional[str]:
 
 
 def generate_email(first: str, last: str, domain: Optional[str] = None, country: str = "") -> str:
-    d = domain or _country_email_domain(country) or random.choice(_EMAIL_DOMAINS)
+    fb = _fallback_domains()
+    d = domain or _country_email_domain(country) or (random.choice(fb) if fb else None)
+    if not d:
+        d = "gmail.com"
+    return f"{first.lower().replace(' ', '')}.{last.lower().replace(' ', '')}{random.randint(10, 99999)}@{d}"
+
+
+def _fallback_domains() -> list[str]:
+    """全局 fallback 域名池: 优先用户配置, 回退内置默认。"""
+    try:
+        from core.email_domains_store import email_domains_store
+        return email_domains_store.fallback_domains()
+    except Exception:
+        return list(_EMAIL_DOMAINS)
     return f"{first.lower().replace(' ', '')}.{last.lower().replace(' ', '')}{random.randint(10, 99999)}@{d}"
 
 
@@ -155,6 +168,8 @@ _PHONE_NATIONAL: dict[str, tuple[int, list[str]]] = {
     "TR": (10, ["5"]),            # 05XXXXXXXX
     "BR": (10, ["6", "7", "8", "9", "1"]),   # 无区号 9xxxx-xxxx (11 位含区号)
     "KR": (9, ["1"]),             # 01X-XXX-XXXX
+    "MX": (10, ["5", "6", "7", "8", "9"]),  # 55/56XXXXXXXX 移动 (10 位无区号)
+    "TW": (9, ["9"]),              # 09XXXXXXXX 移动
 }
 
 
@@ -164,17 +179,100 @@ def _generate_national_phone(country: str) -> str:
     return random.choice(firsts) + "".join(str(random.randint(0, 9)) for _ in range(length - 1))
 
 
+def _generate_postal(spec: dict, prefix: str) -> str:
+    """按邮政编码格式规则 (postal_spec) 算法生成有效邮编。
+
+    依据各国邮编官方格式 (不查表, 由规则推导), prefix 为该区域邮编外码区段,
+    保证生成的邮编落在该街道所在城市/州区。已联网核对过的格式:
+      - digits: 固定长度纯数字 (US 5 / AU 4 / TH 5 / VN 5 / TR 5 / KR 5 / MX 5 / TW 3)
+      - gb_post: 英国 AN NAA / AAN NAA (E1 6AN) — 外码 prefix + 内码随机字母数字
+      - nl_post: 荷兰 NNNN LL (1011 AB) — 4 位数字 prefix + 2 位字母(避开 C/S/M/O/I/J/Q/U/V)
+      - jp_post: 日本 NNN-NNNN (100-0001) — 3 位 prefix + 4 位随机
+      - br_cep: 巴西 CEP NNNNN-NNN (01310-100) — 5 位 prefix + 3 位随机
+      - ci_bp: 科特迪瓦 "NN BP N" 邮政信箱 (01 BP 1) — prefix 2 位区号
+      - fixed: 无统一邮编国家 (AO/BH/AE) 直接用 region 给定的真实信箱号
+    """
+    kind = (spec or {}).get("kind", "digits")
+    if kind == "fixed":
+        # 无统一邮编: 用区域真实信箱/区码 (postal_prefix 即完整邮编)。
+        return prefix
+    if kind == "digits":
+        length = int(spec.get("length", 5))
+        allow_all_zero = bool(spec.get("allow_all_zero", False))
+        # 阿联酋等无标准邮编国家: 官方建议填 00000, 直接返回全 0 长度位。
+        if allow_all_zero:
+            return "0" * length
+        suffix_len = max(0, length - len(prefix))
+        for _ in range(50):  # 重试避免全 0 / 非法前导
+            suffix = "".join(str(random.randint(0, 9)) for _ in range(suffix_len))
+            code = prefix + suffix
+            if not code.startswith("0" * length):  # 非全 0
+                return code
+        return code  # 兜底
+    if kind == "gb_post":
+        # 英国邮编: <outward><space><inward>; outward=prefix(如 E1/AAN), inward=数字+2字母。
+        # 内码首位 1-9, 末两位字母 (避开 C/I,K,M,O,V 易混字母)。
+        inner_num = random.randint(1, 9)
+        # 官方 inward 字母集排除 C I K M O V (与数字/字义混); 用稳定子集。
+        letters = "ABDEFGHJLNPQRSTUWXYZ"
+        a1, a2 = random.choice(letters), random.choice(letters)
+        return f"{prefix} {inner_num}{a1}{a2}"
+    if kind == "nl_post":
+        # 荷兰: 4 位数字 + 空格 + 2 字母; 字母集排除 C/S/M/O (易与数字/字义混), 不含首字母 U/W/Z。
+        # 官方规则: 第二个字母不能为 SA/SS/SD/SJ/SZ 等; 用宽子集 ABDEFGHJLNPQRST。
+        letters = "ABDEFGHJLNPQRST"
+        a1, a2 = random.choice(letters), random.choice(letters)
+        return f"{prefix} {a1}{a2}"
+    if kind == "jp_post":
+        # 日本: NNN-NNNN, 4 位后缀首位可 0。
+        suffix = "".join(str(random.randint(0, 9)) for _ in range(4))
+        return f"{prefix}-{suffix}"
+    if kind == "br_cep":
+        # 巴西 CEP: NNNNN-NNN。prefix 给 3 位前 (如 013), 补 2 位到 5 位, 再 3 位随机。
+        suffix5 = "".join(str(random.randint(0, 9)) for _ in range(max(0, 5 - len(prefix))))
+        suffix3 = "".join(str(random.randint(0, 9)) for _ in range(3))
+        return f"{prefix}{suffix5}-{suffix3}"  # 形如 01310-100
+    if kind == "ci_bp":
+        # 科特迪瓦: "NN BP N" (区号 BP 信箱号)。
+        box = random.randint(1, 9999)
+        return f"{prefix} BP {box}"
+    # 未知 kind 回退纯数字。
+    length = int(spec.get("length", 5))
+    suffix_len = max(0, length - len(prefix))
+    return prefix + "".join(str(random.randint(0, 9)) for _ in range(suffix_len))
+
+
 def generate_country_address(country: str) -> dict:
-    """按国家生成账单地址 (含 line2 语义: district/apartment/empty)。"""
+    """按国家生成账单地址 (含 line2 语义: district/apartment/empty)。
+
+    地址一致性由算法保证: 先随机选一个 region (city/state 区段), 从该 region 取街道,
+    再用该 region 的 postal_prefix + 国家 postal_spec 规则算法生成邮编。这样:
+      - 邮编格式永远合法 (各国邮编规则);
+      - 街道与邮编同属一个城市/州区 (区域锚定), 不再出现 street/postal 跨区错配。
+    PayPal 端再经 AddressAutocompleteFromPostalCodeQuery 做最终校验/补全。
+    """
     cc = (country or "").upper()
     try:
         from paypal.country_profile import address_pool
         pool = address_pool(cc)
     except Exception:
-        pool = dict(city="New York", state="NY", postal=("10001",),
-                    streets=("350 5th Ave",), line2_policy="apartment")
-    line1 = random.choice(pool["streets"])
-    policy = pool.get("line2_policy", "apartment")
+        # 兜底: 纽约 5 位 ZIP 区段。
+        pool = dict(postal_spec=dict(kind="digits", length=5), regions=[
+            dict(city="New York", state="NY", postal_prefix="100", line2_policy="apartment",
+                 streets=("350 5th Ave", "215 W 34th St", "10 E 33rd St", "55 W 25th St"))])
+
+    spec = pool.get("postal_spec") or dict(kind="digits", length=5)
+    regions = pool.get("regions") or []
+    if not regions:
+        # 旧式扁平结构兼容 (仅兜底用)。
+        regions = [dict(city=pool.get("city", "New York"), state=pool.get("state", "NY"),
+                        postal_prefix=pool.get("postal_prefix", "100"),
+                        streets=pool.get("streets", ("350 5th Ave",)),
+                        line2_policy=pool.get("line2_policy", "apartment"))]
+    region = random.choice(regions)
+    line1 = random.choice(region["streets"])
+    postal_code = _generate_postal(spec, region.get("postal_prefix", ""))
+    policy = region.get("line2_policy", "apartment")
     if policy == "district":
         line2 = f"Centro {random.randint(1, 900)}"
     elif policy == "apartment":
@@ -184,9 +282,9 @@ def generate_country_address(country: str) -> dict:
     return {
         "line1": line1,
         "line2": line2,
-        "city": pool["city"],
-        "state": pool["state"],
-        "postal_code": random.choice(pool["postal"]),
+        "city": region["city"],
+        "state": region["state"],
+        "postal_code": postal_code,
         "country": cc,
     }
 
@@ -811,6 +909,130 @@ def de_iban() -> str:
     return f"DE{check}{bban}"
 
 
+def _mod11_weighted_check(base: str, weights: list[int]) -> int:
+    """通用加权和 mod-11 校验位: sum(d_i*w_i) mod 11。"""
+    total = sum(int(d) * w for d, w in zip(base, weights))
+    return total % 11
+
+
+# 日本 My Number (個人番号) 12 位: 前 11 位随机, 权重 6,5,4,3,2,7,6,5,4,3,2,
+# Q=sum mod 11, 校验位 = 0 if Q<=1 else (11-Q)。
+# 官方算法: 内閣官房「行政手続における特定の個人を識別するための番号の利用等に関する法律」
+# 第4/5条; (11-Q) mod 10 等价 (若 Q<=1 取 0)。已内置自验证 (见 _verify_jp_mynumber)。
+def jp_mynumber() -> str:
+    """日本 My Number 12 位: 权重 6,5,4,3,2,7,6,5,4,3,2, Q mod 11, 校验=(11-Q) if Q>1 else 0。"""
+    base = "".join(str(random.randint(0, 9)) for _ in range(11))
+    weights = [6, 5, 4, 3, 2, 7, 6, 5, 4, 3, 2]
+    q = _mod11_weighted_check(base, weights)
+    check = 0 if q <= 1 else 11 - q
+    return base + str(check)
+
+
+def _verify_jp_mynumber(number: str) -> bool:
+    """自验证 My Number 校验位正确 (官方规则)。"""
+    if len(number) != 12 or not number.isdigit():
+        return False
+    base, check = number[:11], int(number[11])
+    q = _mod11_weighted_check(base, [6, 5, 4, 3, 2, 7, 6, 5, 4, 3, 2])
+    return (0 if q <= 1 else 11 - q) == check
+
+
+# 台湾身分證統一編號 10 位: 1 大写字母 + 9 数字 (末位为校验位)。字母映射两位数
+# (A=10,B=11,...,I=34,J=18,K=19,...,Z=33; 字母表顺序但 I/J/O/W/X/Y 有偏移),
+# 校验和 = a*1 + b*9 + d1*8 + d2*7 + ... + d8*1 (10 个权重对应 [a,b,d1..d8]),
+# 校验位 d9 = (10 - sum%10) % 10。官方: 內政部戶政司「國民身分證統一編號檢查校驗位」。
+def tw_national_id() -> str:
+    """台湾身分證 10 位: 字母+8数字+校验位, 权重 1,9,8,7,6,5,4,3,2,1, 校验=(10-sum%10)%10。"""
+    # 字母 -> 两位数映射 (官方表, A..Z 顺序, I=34/J=18/O=35/W=32 是已知偏移)。
+    tw_letter_map = {
+        "A": 10, "B": 11, "C": 12, "D": 13, "E": 14, "F": 15, "G": 16,
+        "H": 17, "I": 34, "J": 18, "K": 19, "L": 20, "M": 21, "N": 22,
+        "O": 35, "P": 23, "Q": 24, "R": 25, "S": 26, "T": 27, "U": 28,
+        "V": 29, "W": 32, "X": 30, "Y": 31, "Z": 33,
+    }
+    letter = random.choice(list(tw_letter_map.keys()))
+    n1, n2 = divmod(tw_letter_map[letter], 10)
+    # 性别位: 1=男, 2=女 (现行首位 1/2 区分性别), 后 7 位随机 d2..d8。
+    gender = random.choice(["1", "2"])
+    rest7 = "".join(str(random.randint(0, 9)) for _ in range(7))
+    # d1..d8 = 性别位 + 7 随机 (共 8 位, 校验和用这 8 位 + 字母两位)。
+    d8 = gender + rest7  # 8 位: d1..d8
+    weights = [1, 9, 8, 7, 6, 5, 4, 3, 2, 1]  # 对应 [a, b, d1..d8] (10 个)
+    parts = [n1, n2] + [int(d) for d in d8]
+    total = sum(p * w for p, w in zip(parts, weights))
+    check = (10 - (total % 10)) % 10
+    return f"{letter}{d8}{check}"  # 字母 + 8位 + 校验位 = 10
+
+
+def _verify_tw_national_id(tid: str) -> bool:
+    """自验证台湾身分證校验位正确 (官方规则)。"""
+    if len(tid) != 10 or not tid[0].isalpha() or not tid[1:].isdigit():
+        return False
+    tw_letter_map = {
+        "A": 10, "B": 11, "C": 12, "D": 13, "E": 14, "F": 15, "G": 16,
+        "H": 17, "I": 34, "J": 18, "K": 19, "L": 20, "M": 21, "N": 22,
+        "O": 35, "P": 23, "Q": 24, "R": 25, "S": 26, "T": 27, "U": 28,
+        "V": 29, "W": 32, "X": 30, "Y": 31, "Z": 33,
+    }
+    letter = tid[0].upper()
+    if letter not in tw_letter_map:
+        return False
+    n1, n2 = divmod(tw_letter_map[letter], 10)
+    d8 = tid[1:9]  # d1..d8 (校验位 d9 之前 8 位)
+    weights = [1, 9, 8, 7, 6, 5, 4, 3, 2, 1]  # 对应 [a, b, d1..d8]
+    parts = [n1, n2] + [int(d) for d in d8]
+    total = sum(p * w for p, w in zip(parts, weights))
+    return (10 - (total % 10)) % 10 == int(tid[9])
+
+
+# 德国 Steueridentifikationsnummer (税号 IdNr) 11 位: 前 10 位数字 + 1 位 mod-11 校验位。
+# 权重 2,3,4,5,6,7,8,9,10,11, 校验位 = (11 - sum%11) mod 11 (若余 10 则非法, 重生成)。
+# 官方: Bundeszentralamt für Steuern; 见 § 139b Abgabenordnung。
+def de_steuer_id() -> str:
+    """德国 Steuer-ID 11 位: 权重 2..11, mod-11 校验; 余 10 非法重试。"""
+    weights = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    for _ in range(100):
+        base = "".join(str(random.randint(0, 9)) for _ in range(10))
+        s = sum(int(d) * w for d, w in zip(base, weights))
+        rem = s % 11
+        if rem == 10:
+            continue  # 校验位非法 (10 无单字符), 重生成
+        check = (11 - rem) % 11
+        if check == 10:
+            continue
+        return base + str(check)
+    # 兜底: 强制选一个余 0 的 base (校验位 = 0)。
+    base = "0000000000"
+    return base + "0"
+
+
+def _verify_de_steuer_id(sid: str) -> bool:
+    """自验证德国 Steuer-ID 校验位正确 (官方 mod-11)。"""
+    if len(sid) != 11 or not sid.isdigit():
+        return False
+    base, check = sid[:10], int(sid[10])
+    weights = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    s = sum(int(d) * w for d, w in zip(base, weights))
+    rem = s % 11
+    if rem == 10:
+        return False
+    return (11 - rem) % 11 == check
+
+
+# 安哥拉 BI (Bilhete de Identidade) 9 位: 结构为省码前缀 + 序号, 官方未公开校验位算法。
+# 与 BH CPR 同策略 (官方校验未公开仅格式): 生成 9 位结构合法号, 不附加伪校验位。
+def ao_bi() -> str:
+    """安哥拉 BI 9 位: 省码(1) + 序号(8); 官方无公开校验, 仅保证 9 位格式合法。"""
+    province = random.randint(1, 9)  # Luanda=1 等 (省码占位)
+    seq = f"{random.randint(0, 99_999_999):08d}"
+    return f"{province}{seq}"
+
+
+def _verify_ao_bi(bi: str) -> bool:
+    """自验证安哥拉 BI 格式合法 (9 位数字; 官方校验未公开仅查格式)。"""
+    return len(bi) == 9 and bi.isdigit()
+
+
 def _curp_value(ch: str) -> int:
     return int(ch) if ch.isdigit() else ord(ch) - 55
 
@@ -920,6 +1142,10 @@ _COUNTRY_NAMES: dict[str, tuple[list[str], list[str]]] = {
         ["Juan", "Carlos", "Miguel", "Jose", "Luis", "Fernando", "Maria", "Guadalupe", "Sofia", "Carmen", "Ana", "Paola"],
         ["Hernandez", "Garcia", "Martinez", "Lopez", "Gonzalez", "Perez", "Rodriguez", "Sanchez", "Ramirez", "Cruz"],
     ),
+    "TW": (
+        ["Wei", "Ming", "Jia", "Jun", "Hao", "Yu", "Ting", "Yi", "Chen", "Wei", "Ling", "Hui", "Chih", "Hsin"],
+        ["Chen", "Lin", "Huang", "Chang", "Li", "Wang", "Wu", "Liu", "Yang", "Tsai"],
+    ),
     "TH": (
         ["Somchai", "Somsak", "Somporn", "Anan", "Panya", "Kittisak", "Malee", "Suda", "Nongyao", "Kanokwan", "Wilai", "Pornthip"],
         ["Saetang", "Saetia", "Saeteo", "Thongchai", "Srisuk", "Chairat", "Khamsaen", "Boonsong", "Jaroen", "Preecha"],
@@ -1010,6 +1236,8 @@ _COUNTRY_FIELD_OVERRIDES: dict[str, list[str]] = {
     "RU": ["CountryOfResidence", "IdentityDocumentType", "IdentityDocumentNumber", "DateOfBirth",
            "SecondaryIdentityDocumentType", "SecondaryIdentityDocumentNumber"],
     "TH": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+    # TW 台湾: 完整 KYC (DateOfBirth/Nationality/身分證統一編號), 与 _FULL_KYC_COUNTRIES 对齐显式登记。
+    "TW": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
 }
 
 _DEFAULT_KYC_FIELDS = ["DateOfBirth", "Nationality"]
@@ -1029,6 +1257,10 @@ _ID_TYPE_BY_COUNTRY: dict[str, list[str]] = {
     "BH": ["NATIONAL_ID"],
     "AR": ["NATIONAL_ID"],
     "ZA": ["NATIONAL_ID"],
+    # MX: CURP 18 字符 (base37 mod-10 校验, 见 mx_curp); 身份证类目用 CURP 占位。
+    "MX": ["CURP"],
+    # TW: 国民身分证 10 位 (字母+9数字+校验位, 见 tw_national_id)。
+    "TW": ["NATIONAL_ID"],
 }
 
 
@@ -1050,6 +1282,10 @@ class CountryIdentity:
     address: dict = field(default_factory=dict)      # line1/line2/city/state/postal_code
     phone_country: str = ""                          # "+1" / "+66" ...
     phone_number: str = ""                           # 完整号码含国码
+    gender: str = ""                                 # "MALE"/"FEMALE" (HK 等需要)
+    place_of_birth: str = ""                         # ISO2 国家码 (HK 等需要)
+    occupation: str = ""                             # 职业枚举 (CA 等需要)
+    secondary_identity_document: dict = field(default_factory=dict)  # RU 等需要次证件
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -1070,6 +1306,10 @@ class CountryIdentity:
             "address": self.address,
             "phone_country": self.phone_country,
             "phone_number": self.phone_number,
+            "gender": self.gender,
+            "place_of_birth": self.place_of_birth,
+            "occupation": self.occupation,
+            "secondary_identity_document": self.secondary_identity_document,
             "extra": self.extra,
         }
 
@@ -1121,13 +1361,77 @@ def _build_profile(country: str, name_pool: tuple[list[str], list[str]], fields:
         if "IdentityDocumentType" in fields:
             itype = random.choice(id_types) if id_types else "PASSPORT_NUMBER"
             ident.identity_document_type = itype
-            ident.identity_document_number = _gen_doc_number(country, itype)
+            # MX CURP 需姓名/dob/性别/州 (上下文), 在此直接拼 (mx_curp 需多参)。
+            if country == "MX" and itype == "CURP":
+                # CURP 姓1=姓, 姓2=次姓(MX 习惯双姓, 这里用空次姓回退 X), 名=名。
+                ident.identity_document_number = _mx_curp_from_ident(ident)
+            else:
+                ident.identity_document_number = _gen_doc_number(country, itype)
         if country == "JP":
             ident.kana_first = latin_to_katakana(ident.first_name)
             ident.kana_last = latin_to_katakana(ident.last_name)
+        # 国家特殊 KYC 字段 (HK: Gender/PlaceOfBirth; RU: SecondaryIdentityDocument;
+        # CA: Occupation)。仅在该字段出现在 kycFields 时才生成, 避免对不需要的国家
+        # 发送冗余字段 (PayPal 校验 kycFields 白名单, 多发会 GRAPHQL_VALIDATION_FAILED)。
+        if "Gender" in fields:
+            ident.gender = random.choice(["MALE", "FEMALE"])
+        if "PlaceOfBirth" in fields:
+            # 出生地用国家 ISO2 (本地出生最常见; country_fields.json 未给具体城市级)。
+            ident.place_of_birth = country
+        if "Occupation" in fields:
+            # CA 等需要职业枚举 (PayPal Occupation enum 子集, 选稳定常见值)。
+            ident.occupation = random.choice([
+                "ENGINEER", "TEACHER", "MANAGER", "ACCOUNTANT", "DESIGNER",
+                "CONSULTANT", "SALES", "RETIRED", "STUDENT", "OTHER",
+            ])
+        if "SecondaryIdentityDocumentType" in fields and "SecondaryIdentityDocumentNumber" in fields:
+            # RU 唯一带次级证件: TAX_IDENTIFICATION_NUMBER (ИИП) 或 PENSION_FUND_ID (СНИЛС)。
+            sec_type = random.choice(["TAX_IDENTIFICATION_NUMBER", "PENSION_FUND_ID"])
+            if sec_type == "TAX_IDENTIFICATION_NUMBER":
+                # 俄罗斯 ИНН 12 位 (个人): 权重 7,2,4,10,3,5,9,4,6,8 mod-11 前 10 位,
+                # 再权重 3,7,2,4,10,3,5,9,4,6,8 mod-11 全 11 位。
+                base10 = "".join(str(random.randint(0, 9)) for _ in range(10))
+                w1 = [7, 2, 4, 10, 3, 5, 9, 4, 6, 8]
+                c1 = (sum(int(d) * w for d, w in zip(base10, w1)) % 11) % 10
+                base11 = base10 + str(c1)
+                w2 = [3, 7, 2, 4, 10, 3, 5, 9, 4, 6, 8]
+                c2 = (sum(int(d) * w for d, w in zip(base11, w2)) % 11) % 10
+                sec_num = base11 + str(c2)
+            else:
+                # СНИЛС 11 位: 前 9 位 + 2 校验位。校验和 = sum(d_i * (9-i)) for i in 0..8。
+                # 官方规则: check = sum % 101; 若 check == 100 则校验位 = 00 (其余 <100 直写)。
+                base9 = "".join(str(random.randint(0, 9)) for _ in range(9))
+                s = sum(int(d) * (9 - i) for i, d in enumerate(base9))
+                check = s % 101
+                if check == 100:
+                    check = 0  # 100 -> 00 (官方映射)
+                sec_num = base9 + f"{check:02d}"
+            ident.secondary_identity_document = {"type": sec_type, "value": sec_num}
         return ident
 
     return _make_profile(country, fields, id_types, gen, source)
+
+
+# MX CURP 上下文拼接: 需姓名(doble apellido), dob(YYMMDD), 性别(H/M), 州码(2字母)。
+# names=(primerApellido, segundoApellido, nombre); 无次姓用空串(内部回退 X)。
+_MX_CURP_STATES = ["DF", "NL", "JL", "MX", "BC", "BS", "SO", "MI", "GT", "QR"]
+_MX_CURP_GENDER = ["H", "M"]
+
+
+def _mx_curp_from_ident(ident: "CountryIdentity") -> str:
+    """从已生成的身份拼墨西哥 CURP (姓名/dob/性别/州随机)。"""
+    primer_ap = (ident.last_name or "").upper().replace(" ", "")
+    nombre = (ident.first_name or "").upper().replace(" ", "")
+    # dob 格式 dd/mm/yyyy -> yymmdd
+    dob = ident.dob or ""
+    try:
+        d, m, y = dob.split("/")
+        yymmdd = f"{y[2:]}{m}{d}"
+    except Exception:
+        yymmdd = "".join(random.choices("0123456789", k=6))
+    gender = random.choice(_MX_CURP_GENDER)
+    state = random.choice(_MX_CURP_STATES)
+    return mx_curp((primer_ap, "", nombre), yymmdd, gender, state)
 
 
 def _gen_doc_number(country: str, doc_type: str) -> str:
@@ -1147,6 +1451,16 @@ def _gen_doc_number(country: str, doc_type: str) -> str:
         return bh_cpr()
     if country == "ZA":
         return za_id()
+    if country == "TW":
+        return tw_national_id()  # 台湾身分證 10 位 (字母+9数字+校验位)
+    if country == "JP" and doc_type in {"MY_NUMBER", "INDIVIDUAL_NUMBER", "NATIONAL_ID"}:
+        # JP My Number 12 位 (校验位算法), 仅当证件类目要求时提供。
+        return jp_mynumber()
+    if country == "DE" and doc_type in {"TAX_IDENTIFICATION_NUMBER", "TAX_ID", "STEUER_ID"}:
+        # 德国 Steuer-ID 11 位 (mod-11 校验)。
+        return de_steuer_id()
+    if country == "AO":
+        return ao_bi()  # 安哥拉 BI 9 位 (官方校验未公开仅格式)
     return "".join(str(random.randint(0, 9)) for _ in range(9))
 
 

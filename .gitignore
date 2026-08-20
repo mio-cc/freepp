@@ -7,6 +7,33 @@ __pycache__/
 # dev archive (tests / diag scripts / capture artifacts - not shipped)
 _archive_dev/
 
+# temp diagnostic / test scripts (含真实凭据, 不入库)
+_check_card*.py
+_inject_test_traffic.py
+backend/_check_*.py
+backend/_diag_*.py
+backend/_fetch_otp*.py
+backend/_import_token.py
+backend/_run_reg_*.py
+backend/_test_*.py
+backend/_verify_*.py
+backend/_authchallenge_dump.html
+backend/_gb_matrix_*.json
+backend/_gb_matrix_*.jsonl
+backend/_run_reg_test.py
+backend/_run_reg_api798.py
+
+# research notes 含自建邮箱域名, 不入库
+backend/ba_paypal/research/2026-08-20_gb_ba_authorize_findings.md
+backend/ba_paypal/research/2026-08-20_gb_matrix_experiment_results.md
+
+# zcode 工作区状态
+.zcode/
+
+# frontend 临时重构草稿
+frontend/REFACTOR_PLAN.md
+frontend/refactor-demo.html
+
 # runtime capture artifacts (regenerable)
 _atomic_gc_resp.bin
 _gc_*.bin
@@ -25,6 +52,12 @@ _t_jsdom_smoke.js
 backend/config.yaml
 backend/ba_config.json
 backend/ba_queue.json
+backend/secrets.json
+backend/email_domains.json
+backend/pipeline_config.json
+backend/mail_pool.json
+backend/mail_presets.json
+backend/proxy_traffic.json
 backend/ba_paypal/.env
 .env
 *.env

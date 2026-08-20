@@ -125,6 +125,28 @@ export function DirectPayView() {
     finally { setLoading(false); }
   };
 
+  const [cardSelected, setCardSelected] = useState<Set<number>>(new Set());
+  const allCardsSelected = cards.length > 0 && cards.every((c) => cardSelected.has(c.id));
+  const toggleCardSelect = (id: number) =>
+    setCardSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAllCards = () =>
+    setCardSelected(allCardsSelected ? new Set() : new Set(cards.map((c) => c.id)));
+  const handleBulkDeleteCards = async () => {
+    const ids = Array.from(cardSelected);
+    if (ids.length === 0) return;
+    if (!window.confirm(`确认删除选中的 ${ids.length} 张卡片？`)) return;
+    try {
+      const d = await api("/api/directpay/cards/bulk_delete", "POST", { card_ids: ids });
+      if (d && d.ok) {
+        setCardSelected(new Set());
+        loadCards();
+      }
+    } catch { /* 静默 */ }
+  };
+  const handleDeleteCard = async (id: number) => {
+    try { await api(`/api/directpay/cards/${id}`, "DELETE"); loadCards(); } catch { /* 静默 */ }
+  };
+
   const handleGenAddr = async (state: string) => {
     const d = await api(`/api/directpay/taxfree?state=${state}`);
     if (d && d.ok) setAddr(d.address);
@@ -241,17 +263,36 @@ export function DirectPayView() {
             </div>
           </div>
           <div className="table-wrap" style={{ border: "none", borderRadius: 0, borderTop: "1px solid var(--border-faint)" }}>
+            {cardSelected.size > 0 && (
+              <div className="batch-bar">
+                <span className="tag">已选 {cardSelected.size}</span>
+                <button className="btn btn-sm btn-danger" onClick={handleBulkDeleteCards}>删除所选</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => setCardSelected(new Set())}>取消选择</button>
+              </div>
+            )}
             <table className="table">
               <thead>
-                <tr><th>卡号</th><th>有效期</th><th>持卡人</th><th>用量</th></tr>
+                <tr>
+                  <th style={{ width: 32 }}>
+                    <input type="checkbox" checked={allCardsSelected} onChange={toggleAllCards} />
+                  </th>
+                  <th>卡号</th><th>有效期</th><th>持卡人</th><th>用量</th><th>操作</th>
+                </tr>
               </thead>
               <tbody>
+                {cards.length === 0 && (
+                  <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--text-3)" }}>暂无卡片</td></tr>
+                )}
                 {cards.map((c) => (
-                  <tr key={c.id}>
+                  <tr key={c.id} className={cardSelected.has(c.id) ? "row-selected" : ""}>
+                    <td><input type="checkbox" checked={cardSelected.has(c.id)} onChange={() => toggleCardSelect(c.id)} /></td>
                     <td><code className="mono">{c.number}</code></td>
                     <td>{c.exp_month}/{c.exp_year}</td>
                     <td>{c.name || "—"}</td>
                     <td>{c.uses}/{c.max_uses}</td>
+                    <td>
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDeleteCard(c.id)}>删除</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

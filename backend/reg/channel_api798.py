@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -22,7 +23,7 @@ import urllib.parse
 
 from . import chatgpt_core as cc
 
-_API_BASE = "https://api798.com/get_code"
+_API_BASE = os.environ.get("REG_API798_ENDPOINT", "https://api798.com/get_code")
 
 # 已领取邮箱队列（线程安全，消费一个少一个）
 _QUEUE: list[dict] = []

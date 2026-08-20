@@ -52,6 +52,13 @@ _COUNTRY_MAP: dict[str, dict] = {
                phone="+55", smsbower_id="73", currency="BRL", proxy_supported=True, sms_supported=True),
     "KR": dict(locale="ko_KR", language="ko-KR", timezone="Asia/Seoul", lang="ko",
                phone="+82", smsbower_id="14", currency="KRW", proxy_supported=True, sms_supported=True),
+    # MX (墨西哥): SMSBower 国家码 73 见 getPricesV3 墨西哥行; 711 region=MX 实测可用。
+    "MX": dict(locale="es_MX", language="es-MX", timezone="America/Mexico_City", lang="es",
+               phone="+52", smsbower_id="73", currency="MXN", proxy_supported=True, sms_supported=True),
+    # TW (台湾): SMSBower 数字国家码未实测, 标 "*" 推估 + sms_supported=False 防止误接码;
+    # 711 region=TW 可用, 接码走 mx(73) 兜底 (smsbower_country_id 会 rstrip("*"))。
+    "TW": dict(locale="zh_TW", language="zh-TW", timezone="Asia/Taipei", lang="zh",
+               phone="+886", smsbower_id="73*", currency="TWD", proxy_supported=True, sms_supported=False),
 }
 
 # 接码实测价 (2026-08-12, service=ts, USD): BR 0.004 / VN 0.012 / KR 0.014 /
@@ -97,41 +104,136 @@ _EMAIL_DOMAINS: dict[str, list[str]] = {
     "TR": ["gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "yandex.com", "icloud.com"],
     "KR": ["gmail.com", "naver.com", "hanmail.net", "nate.com", "outlook.com", "kakao.com"],
     "BR": ["gmail.com", "hotmail.com", "outlook.com", "yahoo.com.br", "icloud.com", "bol.com.br"],
+    # MX/TW 新增国家 (常用邮箱域名, hotmail/outlook 在拉美/台普及)。
+    "MX": ["gmail.com", "hotmail.com", "outlook.com", "yahoo.com.mx", "prodigy.net.mx", "icloud.com"],
+    "TW": ["gmail.com", "yahoo.com.tw", "hotmail.com", "outlook.com", "icloud.com", "pchome.com.tw"],
 }
 
-# 每国地址池: (city, state, postal_samples, street_samples, line2_policy)
+# 每国地址池 (算法生成版): postal_spec 定义邮编格式规则, regions 把城市/州/街道
+# 绑到该邮编前缀区, 保证 street↔postal 区域一致 (用邮编规则生成, 不再硬编码配对表)。
+#
+# postal_spec.kind:
+#   "digits"   -> 固定长度纯数字; 用 prefix 区段 + 随机后缀 (length 总长度)。
+#   "gb_post"  -> 英国邮编 AN\dN\s?NAA / AAN\s?NAA, prefix 给定外码区 (如 "E1")。
+#   "nl_post"  -> 荷兰邮编 NNNN<space>LL, prefix 给 4 位数字外码, 2 位字母随机。
+#   "jp_post"  -> 日本邮编 NNN-NNNN, prefix 给 3 位前, 4 位随机。
+#   "br_cep"   -> 巴西 CEP NNNNN-NNN, prefix 给 5 位前, 3 位随机。
+#   "ci_bp"    -> 科特迪瓦 "NN BP N" 邮政信箱格式, prefix 给 2 位区号。
+#   "fixed"    -> 直接用 region 里给定的完整 postal (AO/AE/BH 等无统一邮编或自由邮编)。
+# regions: list of {city, state, postal_prefix, streets[], line2_policy}
 # line2_policy: "district"(巴西 bairro) / "apartment"(公寓号) / "empty"(无)
 _ADDRESSES: dict[str, dict] = {
-    "US": dict(city="New York", state="NY", postal=("10001", "10013", "10022", "10128"),
-               streets=("350 5th Ave", "215 W 34th St", "10 E 33rd St", "55 W 25th St"), line2_policy="apartment"),
-    "GB": dict(city="London", state="London", postal=("SW1A 1AA", "E1 6AN", "W1T 4DH", "EC2A 4NE"),
-               streets=("10 Downing Street", "221B Baker Street", "1 Broadgate", "45 Fleet Street"), line2_policy="apartment"),
-    "AU": dict(city="Sydney", state="NSW", postal=("2000", "2010", "2027", "2031"),
-               streets=("1 Macquarie St", "5 Martin Place", "100 George St", "25 Pitt St"), line2_policy="apartment"),
-    "DE": dict(city="Berlin", state="Berlin", postal=("10115", "10117", "10245", "10437"),
-               streets=("Invalidenstrasse 1", "Unter den Linden 10", "Friedrichstrasse 44", "Torstrasse 88"), line2_policy="empty"),
-    "JP": dict(city="Tokyo", state="Tokyo", postal=("100-0001", "150-0002", "104-0061", "160-0022"),
-               streets=("1-1 Chiyoda", "2-10-1 Ginza", "3-25-3 Shibuya", "4-8-1 Shinjuku"), line2_policy="empty"),
-    "TH": dict(city="Bangkok", state="Bangkok", postal=("10110", "10330", "10400", "10500"),
-               streets=("1 Sukhumvit Rd", "22 Ratchadamri Rd", "89 Silom Rd", "45 Phayathai Rd"), line2_policy="apartment"),
-    "NL": dict(city="Amsterdam", state="Noord-Holland", postal=("1011 AC", "1012 JS", "1016 EA", "1077 XV"),
-               streets=("Damrak 1", "Kalverstraat 20", "Leidseplein 8", "Prinsengracht 263"), line2_policy="apartment"),
-    "VN": dict(city="Ho Chi Minh City", state="Ho Chi Minh City", postal=("70000", "71000", "72000", "73000"),
-               streets=("1 Nguyen Hue", "10 Le Loi", "25 Dong Khoi", "88 Hai Ba Trung"), line2_policy="apartment"),
-    "BH": dict(city="Manama", state="Manama", postal=("300", "316", "338", "404"),
-               streets=("1 Government Ave", "15 Diplomatic Area", "26 Salman Ave", "40 Hoora Rd"), line2_policy="apartment"),
-    "AO": dict(city="Luanda", state="Luanda", postal=("1000", "2000", "3000", "4000"),
-               streets=("1 Marginal", "12 Av 4 de Fevereiro", "30 Rua Amilcar Cabral", "55 Rua da Missao"), line2_policy="apartment"),
-    "AE": dict(city="Dubai", state="Dubai", postal=("00000", "11111", "22222", "33333"),
-               streets=("1 Sheikh Zayed Rd", "15 Jumeirah Beach Rd", "36 Al Wasl Rd", "70 Trade Centre Rd"), line2_policy="apartment"),
-    "CI": dict(city="Abidjan", state="Abidjan", postal=("01 BP 1", "02 BP 2", "03 BP 3", "04 BP 4"),
-               streets=("1 Ave de la Republique", "12 Rue du Commerce", "28 Bd de Marseille", "50 Rue des Jardins"), line2_policy="apartment"),
-    "TR": dict(city="Istanbul", state="Istanbul", postal=("34000", "34110", "34433", "34710"),
-               streets=("1 Istiklal Cd", "20 Bagdat Cd", "45 Barbaros Blv", "70 Ataturk Blv"), line2_policy="apartment"),
-    "KR": dict(city="Seoul", state="Seoul", postal=("04524", "06030", "07325", "100-011"),
-               streets=("1 Jong-ro", "12 Gangnam-daero", "30 Teheran-ro", "55 Yulgok-ro"), line2_policy="apartment"),
-    "BR": dict(city="Sao Paulo", state="SP", postal=("01310-100", "01311-001", "04538-133", "05407-002"),
-               streets=("Av Paulista 1000", "Rua Augusta 2000", "Alameda Santos 1300", "Av Brigadeiro Faria Lima 3000"), line2_policy="district"),
+    # US: 5 位 ZIP, 纽约市 ZIP 100xx/101xx 区段 (曼哈顿)。
+    "US": dict(postal_spec=dict(kind="digits", length=5), regions=[
+        dict(city="New York", state="NY", postal_prefix="100", line2_policy="apartment",
+             streets=("350 5th Ave", "215 W 34th St", "10 E 33rd St", "55 W 25th St")),
+        dict(city="New York", state="NY", postal_prefix="101", line2_policy="apartment",
+             streets=("200 Park Ave", "570 Lexington Ave", "60 Wall St", "40 Wall St")),
+    ]),
+    # GB: 伦敦东码区 E1, 邮政自动 AN NAA 格式 (E1 6AN 等), 全部落在 Tower Hamlets。
+    "GB": dict(postal_spec=dict(kind="gb_post"), regions=[
+        dict(city="London", state="London", postal_prefix="E1", line2_policy="apartment",
+             streets=("6 Brushfield Street", "12 Osborn Street", "8 Wentworth Street", "3 Crispin Street")),
+        dict(city="London", state="London", postal_prefix="E1", line2_policy="apartment",
+             streets=("21 Brick Lane", "14 Commercial Street", "2 Whitechapel Road", "9 Hanbury Street")),
+    ]),
+    # AU: 4 位邮编, 悉尼 CBD 2000/2010 区段 (NSW)。
+    "AU": dict(postal_spec=dict(kind="digits", length=4), regions=[
+        dict(city="Sydney", state="NSW", postal_prefix="200", line2_policy="apartment",
+             streets=("1 Macquarie St", "5 Martin Place", "100 George St", "25 Pitt St")),
+        dict(city="Sydney", state="NSW", postal_prefix="201", line2_policy="apartment",
+             streets=("10 Crown St", "88 Oxford St", "300 King St", "55 Darlinghurst Rd")),
+    ]),
+    # DE: 5 位 Postleitzahl, 柏林 Mitte 101xx (Invalidenstrasse 属 10115)。
+    "DE": dict(postal_spec=dict(kind="digits", length=5), regions=[
+        dict(city="Berlin", state="Berlin", postal_prefix="101", line2_policy="empty",
+             streets=("Invalidenstrasse 1", "Unter den Linden 10", "Friedrichstrasse 44", "Torstrasse 88")),
+        dict(city="Berlin", state="Berlin", postal_prefix="102", line2_policy="empty",
+             streets=("Alexanderplatz 1", "Karl-Marx-Allee 84", "Frankfurter Tor 5", "Strausberger Platz 1")),
+    ]),
+    # JP: NNN-NNNN, 东京千代田 100-xxxx / 港区 150-xxxx / 中央区 104-xxxx / 新宿 160-xxxx。
+    "JP": dict(postal_spec=dict(kind="jp_post"), regions=[
+        dict(city="Tokyo", state="Tokyo", postal_prefix="100", line2_policy="empty",
+             streets=("1-1 Chiyoda", "1-1 Marunouchi", "1-2 Otemachi", "2-1 Uchisaiwaicho")),
+        dict(city="Tokyo", state="Tokyo", postal_prefix="150", line2_policy="empty",
+             streets=("2-10-1 Ginza", "3-25-3 Shibuya", "4-8-1 Shinjuku", "5-2-1 Higashi")),
+    ]),
+    # TH: 5 位邮编, 曼谷 10xxx 区 (Sukhumvit/Silom 均属 10110/10500)。
+    "TH": dict(postal_spec=dict(kind="digits", length=5), regions=[
+        dict(city="Bangkok", state="Bangkok", postal_prefix="101", line2_policy="apartment",
+             streets=("1 Sukhumvit Rd", "89 Silom Rd", "45 Phayathai Rd", "22 Ratchadamri Rd")),
+        dict(city="Bangkok", state="Bangkok", postal_prefix="105", line2_policy="apartment",
+             streets=("10 Sathorn Rd", "30 Rama IV Rd", "55 Wireless Rd", "18 Ploenchit Rd")),
+    ]),
+    # NL: NNNN LL, 阿姆斯特丹中心 1011-1016 区 (Damrak/Prinsengracht)。
+    "NL": dict(postal_spec=dict(kind="nl_post"), regions=[
+        dict(city="Amsterdam", state="Noord-Holland", postal_prefix="1011", line2_policy="apartment",
+             streets=("Damrak 1", "Kalverstraat 20", "Rokin 10", "Spuistraat 5")),
+        dict(city="Amsterdam", state="Noord-Holland", postal_prefix="1016", line2_policy="apartment",
+             streets=("Leidseplein 8", "Prinsengracht 263", "Herengracht 100", "Keizersgracht 200")),
+    ]),
+    # VN: 6 位邮编 (胡志明市 70xxxx/72xxxx), 越南邮编为 6 位无强校验位。
+    "VN": dict(postal_spec=dict(kind="digits", length=6), regions=[
+        dict(city="Ho Chi Minh City", state="Ho Chi Minh City", postal_prefix="7000", line2_policy="apartment",
+             streets=("1 Nguyen Hue", "10 Le Loi", "25 Dong Khoi", "88 Hai Ba Trung")),
+        dict(city="Ho Chi Minh City", state="Ho Chi Minh City", postal_prefix="7200", line2_policy="apartment",
+             streets=("5 Pham Van Dong", "30 Vo Van Kiet", "12 Tran Hung Dao", "50 Ly Tu Trong")),
+    ]),
+    # BH: 巴林无统一邮编, 用邮政信箱区码 (3xx), fixed 避免编造无效数字。
+    "BH": dict(postal_spec=dict(kind="fixed"), regions=[
+        dict(city="Manama", state="Manama", postal_prefix="317", line2_policy="apartment",
+             streets=("1 Government Ave", "15 Diplomatic Area", "26 Salman Ave", "40 Hoora Rd")),
+    ]),
+    # AO: 安哥拉无统一邮编 (Luanda 用邮政信箱), fixed 用真实信箱区段。
+    "AO": dict(postal_spec=dict(kind="fixed"), regions=[
+        dict(city="Luanda", state="Luanda", postal_prefix="1855", line2_policy="apartment",
+             streets=("1 Marginal", "12 Av 4 de Fevereiro", "30 Rua Amilcar Cabral", "55 Rua da Missao")),
+    ]),
+    # AE: 阿联酋无标准邮编 (官方建议 00000), digits 长度 5 但 prefix 000 退化为全 0。
+    "AE": dict(postal_spec=dict(kind="digits", length=5, allow_all_zero=True), regions=[
+        dict(city="Dubai", state="Dubai", postal_prefix="000", line2_policy="apartment",
+             streets=("1 Sheikh Zayed Rd", "15 Jumeirah Beach Rd", "36 Al Wasl Rd", "70 Trade Centre Rd")),
+    ]),
+    # CI: 科特迪瓦 "NN BP N" 邮政信箱格式, Abidjan 各区 01-10。
+    "CI": dict(postal_spec=dict(kind="ci_bp"), regions=[
+        dict(city="Abidjan", state="Abidjan", postal_prefix="01", line2_policy="apartment",
+             streets=("1 Ave de la Republique", "12 Rue du Commerce", "28 Bd de Marseille", "50 Rue des Jardins")),
+    ]),
+    # TR: 5 位邮编, 伊斯坦布尔欧洲侧 34xxxx (Beyoglu 344xx)。
+    "TR": dict(postal_spec=dict(kind="digits", length=5), regions=[
+        dict(city="Istanbul", state="Istanbul", postal_prefix="344", line2_policy="apartment",
+             streets=("1 Istiklal Cd", "20 Bagdat Cd", "45 Barbaros Blv", "70 Ataturk Blv")),
+        dict(city="Istanbul", state="Istanbul", postal_prefix="347", line2_policy="apartment",
+             streets=("10 Levent Cd", "33 Etiler Mah", "77 Maslak Cd", "5 Nispetiye Cd")),
+    ]),
+    # KR: 5 位 우편번호 (旧制 NNNNN), 首尔 Jongno 045xx / Gangnam 060xx。
+    "KR": dict(postal_spec=dict(kind="digits", length=5), regions=[
+        dict(city="Seoul", state="Seoul", postal_prefix="045", line2_policy="apartment",
+             streets=("1 Jong-ro", "12 Gangnam-daero", "30 Teheran-ro", "55 Yulgok-ro")),
+        dict(city="Seoul", state="Seoul", postal_prefix="060", line2_policy="apartment",
+             streets=("5 Gangnam-gu", "22 Apgujeong-ro", "8 Yeoksam-ro", "14 Seolleung-ro")),
+    ]),
+    # BR: CEP NNNNN-NNN, 圣保罗市中心 013xx/045xx (Av Paulista)。
+    "BR": dict(postal_spec=dict(kind="br_cep"), regions=[
+        dict(city="Sao Paulo", state="SP", postal_prefix="013", line2_policy="district",
+             streets=("Av Paulista 1000", "Rua Augusta 2000", "Alameda Santos 1300", "Rua Bela Cintra 1500")),
+        dict(city="Sao Paulo", state="SP", postal_prefix="045", line2_policy="district",
+             streets=("Av Brigadeiro Faria Lima 3000", "Rua dos Pinheiros 500", "Av Luis Carlos Berrini 800", "Rua Joaquim Floriano 200")),
+    ]),
+    # MX: 5 位 Codigo Postal, 墨西哥城 CDMX 00xxx-01xxx 区 (Cuauhtemoc 06500/Benito Juarez 03xxx)。
+    "MX": dict(postal_spec=dict(kind="digits", length=5), regions=[
+        dict(city="Mexico City", state="CDMX", postal_prefix="065", line2_policy="apartment",
+             streets=("Av Paseo de la Reforma 250", "Av Insurgentes Sur 1234", "Rio Guadalquivir 50", "Av Chapultepec 200")),
+        dict(city="Mexico City", state="CDMX", postal_prefix="039", line2_policy="apartment",
+             streets=("Av Patriotismo 100", "Calle Tlacotalpan 50", "Av Cuauhtemoc 300", "Calle Amsterdam 80")),
+    ]),
+    # TW: 3+3 邮编 (NNN), 台北市 100-116 区段 (中正区 100/大安区 106)。
+    "TW": dict(postal_spec=dict(kind="digits", length=3), regions=[
+        dict(city="Taipei", state="Taipei", postal_prefix="100", line2_policy="apartment",
+             streets=("Zhongxiao E Rd Sec 1 100", "Zhongshan N Rd Sec 1 50", "Bade Rd Sec 1 80", "Xinyi Rd Sec 1 20")),
+        dict(city="Taipei", state="Taipei", postal_prefix="106", line2_policy="apartment",
+             streets=("Dunhua S Rd Sec 1 200", "Renai Rd Sec 1 150", "Zhongxiao E Rd Sec 4 300", "Heping E Rd Sec 1 60")),
+    ]),
 }
 
 
@@ -142,6 +244,7 @@ _TZ_OFFSET_FALLBACK: dict[str, int] = {
     "Europe/Amsterdam": 60, "Asia/Ho_Chi_Minh": 420, "Asia/Bahrain": 180,
     "Africa/Luanda": 60, "Asia/Dubai": 240, "Africa/Abidjan": 0,
     "Europe/Istanbul": 180, "America/Sao_Paulo": 180, "Asia/Seoul": 540,
+    "America/Mexico_City": -360, "Asia/Taipei": 480,
 }
 
 
@@ -177,7 +280,12 @@ def proxy_supported(country: str) -> bool:
 
 
 def email_domains(country: str) -> list[str]:
-    return list(_EMAIL_DOMAINS.get((country or "").upper(), _EMAIL_DOMAINS["US"]))
+    """按国家取邮箱域名池。优先用户配置 (email_domains.json), 回退内置默认。"""
+    try:
+        from core.email_domains_store import email_domains_store
+        return email_domains_store.domains_for_country(country or "US")
+    except Exception:
+        return list(_EMAIL_DOMAINS.get((country or "").upper(), _EMAIL_DOMAINS["US"]))
 
 
 def address_pool(country: str) -> dict:

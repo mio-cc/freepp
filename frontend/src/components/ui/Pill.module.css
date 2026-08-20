@@ -1,0 +1,27 @@
+/* Pill 原语 — h24, r12, bg-raised, label-secondary */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-2);
+  background: var(--bg-raised);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.interactive {
+  cursor: pointer;
+}
+.interactive:hover {
+  background: var(--bg-hover);
+}
+
+.active {
+  color: var(--text-1);
+  background: var(--bg-active);
+}

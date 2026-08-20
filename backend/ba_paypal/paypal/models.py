@@ -29,6 +29,7 @@ class UserInfo:
     occupation: str = ""
     gender: str = ""
     place_of_birth: str = ""
+    secondary_identity_document: dict | None = None  # RU 等次级证件 {type, value}
 
 
 @dataclass
@@ -320,10 +321,20 @@ def _luhn_checksum(partial: str) -> int:
 
 
 def _generate_br_email(first_name: str, last_name: str) -> str:
+    domains = _br_email_domains()
     return (
         f"{first_name.lower()}.{last_name.lower()}"
-        f"{random.randint(10, 9999)}@{random.choice(_BR_EMAIL_DOMAINS)}"
+        f"{random.randint(10, 9999)}@{random.choice(domains)}"
     )
+
+
+def _br_email_domains() -> list[str]:
+    """巴西域名池: 优先用户配置, 回退内置默认。"""
+    try:
+        from core.email_domains_store import email_domains_store
+        return email_domains_store.domains_for_country("BR")
+    except Exception:
+        return list(_BR_EMAIL_DOMAINS)
 
 
 def generate_card(
@@ -420,6 +431,10 @@ def generate_user(phone: str = "", country: str = "BR") -> UserInfo:
             middle_name=ident.middle_name,
             kana_first=ident.kana_first,
             kana_last=ident.kana_last,
+            gender=ident.gender,
+            place_of_birth=ident.place_of_birth,
+            occupation=ident.occupation,
+            secondary_identity_document=ident.secondary_identity_document or None,
         )
 
     phone_full = _normalize_phone_full(phone, "+55")

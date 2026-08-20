@@ -33,13 +33,21 @@ async def register_events(since: int = 0):
 async def register_start(body: dict | None = None):
     body = body or {}
     count = min(max(int(body.get("count", 1)), 1), 200)
-    email_mode = str(body.get("email_mode") or "mailtm").strip()
+    email_mode = str(body.get("email_mode") or "").strip()
+    if not email_mode:
+        chans = list(reg_engine.email_channels())
+        if not chans:
+            return {"ok": False, "error": "无可用邮箱渠道（邮箱池为空，请先在邮箱池添加 IMAP 账号）"}
+        email_mode = chans[0]
     if email_mode not in reg_engine.email_channels():
         return {"ok": False, "error": f"未知邮箱渠道: {email_mode}（可用: {', '.join(reg_engine.email_channels())}）"}
     concurrency = int(body.get("concurrency") or 1)
     raw_cd = body.get("cooldown")
     cooldown = float(raw_cd) if raw_cd is not None else 30.0
     proxy = str(body.get("proxy") or "").strip() or None
+    country = str(body.get("country") or body.get("reg_country") or "auto").strip().upper()
+    if country == "":
+        country = "AUTO"
     task_id = reg_engine.STATE.try_start()
     if not task_id:
         return {"ok": False, "error": "已有注册任务在运行"}
@@ -48,7 +56,7 @@ async def register_start(body: dict | None = None):
         try:
             reg_engine.stream_registration(
                 count=count, email_mode=email_mode, concurrency=concurrency,
-                cooldown=cooldown, task_id=task_id, proxy=proxy)
+                cooldown=cooldown, task_id=task_id, proxy=proxy, country=country)
         except Exception:
             pass
 
@@ -60,6 +68,35 @@ async def register_start(body: dict | None = None):
 async def register_stop():
     stopped = reg_engine.cancel_registration()
     return {"ok": True, "stopped": stopped}
+
+
+@router.get("/countries")
+async def register_countries():
+    """注册可选出口国家列表 (GEO 表里有完整地理数据的国家)。"""
+    try:
+        from core.billing import GEO
+        countries = sorted(GEO.keys())
+    except Exception:
+        countries = []
+    return {"ok": True, "countries": countries}
+
+
+@router.get("/channels")
+async def register_channels():
+    """可用注册邮箱渠道列表 (动态构建, 不再前端硬编码)。
+    返回 [{name, label, hint}] — name 即 run(email=name) 的取值。
+    """
+    channels = []
+    names = list(reg_engine.email_channels())
+    for name in names:
+        if name.startswith("imap:"):
+            label = name[5:]
+            channels.append({"name": name, "label": f"📧 {label} (IMAP)", "hint": "自建域名邮箱 · IMAP 取码"})
+        elif name.startswith("api798"):
+            channels.append({"name": name, "label": "api798 卡密邮箱", "hint": "第三方取码服务 · 按卡密消费"})
+        else:
+            channels.append({"name": name, "label": name, "hint": "自定义渠道"})
+    return {"ok": True, "channels": channels}
 
 
 @router.get("/status")
@@ -100,6 +137,20 @@ async def register_account_delete(account_id: int):
     finally:
         ra.close(conn)
     return {"ok": bool(deleted), "deleted": deleted}
+
+
+@router.post("/accounts/bulk_delete")
+async def register_accounts_bulk_delete(body: dict | None = None):
+    """批量删除注册账号。body: {account_ids: [1, 2, 3]}"""
+    account_ids = [int(x) for x in (body or {}).get("account_ids", []) if str(x).strip().isdigit()]
+    if not account_ids:
+        return {"ok": False, "error": "未提供有效 ID", "deleted": 0}
+    conn = ra.connect()
+    try:
+        deleted = ra.bulk_delete_accounts(conn, account_ids)
+    finally:
+        ra.close(conn)
+    return {"ok": True, "deleted": deleted}
 
 
 @router.get("/stats")

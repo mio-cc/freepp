@@ -70,7 +70,7 @@ def _sentinel_egress_candidates(explicit_proxies=None) -> list:
 
     旧实现 proxies=None 仅「碰巧」吃到 libcurl 的 HTTP_PROXY env；
     env 被清掉或进程未继承时就变成 403 → pure: /req 失败或非 JSON。
-    这里显式探测 Clash / env，与 chatgpt._local_or_env_proxies 对齐。
+    这里显式探测 Clash / env，确保 libcurl 能吃到正确的出站代理。
     """
     import socket
 

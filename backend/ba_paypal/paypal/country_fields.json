@@ -1,20 +1,23 @@
 {
   "meta": {
-    "source": "gj/_js/main_72d757f6c90e0b683d47_js.js (kycFields/kycIdTypes) + gj/signup_form_*.json + gj/paypal_form_*.json",
+    "source": "gj/_js/main_72d757f6c90e0b683d47_js.js (kycFields/kycIdTypes) + gj/signup_form_*.json + gj/paypal_form_*.json + 2026-08-20 代码算法化补全 (MX/TW + JP My Number/DE Steuer-ID/AO BI/地址算法生成)",
     "algorithms": {
       "TH": "Thai PIN 13-digit, weights 13..2 mod-11, check=(11-s%11)%10",
       "AE": "Emirates ID 784-YYYY-NNNNNNN-C, Luhn mod-10",
-      "KR": "RRN 13-digit, weights 2,3,4,5,6,7,8,9,2,3,4,5 mod-11",
+      "KR": "RRN 13-digit, weights 2,3,4,5,6,7,8,9,2,3,4,5 mod-11 (注: 现实现 base 13 位 + 校验位=14 位, 与官方 13 位不符, KR 用 PASSPORT_NUMBER 故暂不影响)",
       "BR": "CPF 11-digit double mod-11",
       "ZA": "SA ID YYMMDDSSSSC8Z, Luhn mod-10",
       "AR": "CUIT/CUIL 11-digit, weights 5,4,3,2,7,6,5,4,3,2 mod-11",
       "VN": "CCCD 12-digit structural (province+gender/century+year+random), no checksum",
       "BH": "CPR YYMMNNNNC, official checksum unpublished (Luhn placeholder)",
-      "MX": "CURP 18-char base37, weights 18..2 mod-10",
-      "DE": "IBAN DE mod-97 (ISO 13616)",
-      "JP": "katakana name via roman->katakana rule map"
+      "MX": "CURP 18-char base37, weights 18..2 mod-10 (需姓名/dob/性别/州上下文)",
+      "TW": "国民身分证 10-char (1 字母+9 数字), 字母两位数映射, 权重 1,9,8,7,6,5,4,3,2,1, check=(10-sum%10)%10",
+      "DE": "IBAN DE mod-97 (ISO 13616); Steuer-ID (IdNr) 11-digit weights 2..11 mod-11, 余10非法重试",
+      "JP": "katakana name via roman->katakana rule map; My Number 12-digit weights 6,5,4,3,2,7,6,5,4,3,2, Q mod 11, check=0 if Q<=1 else 11-Q",
+      "AO": "BI 9-digit 省码(1)+序号(8), 官方校验未公开仅格式",
+      "RU": "INN 12-digit (权重 7,2,4,10,3,5,9,4,6,8 + 3,7,2,4,10,3,5,9,4,6,8 双 mod-11); SNILS 11-digit (sum*d(9..1), check=sum%101, 100->00)"
     },
-    "updated": "2026-08-12"
+    "updated": "2026-08-20"
   },
   "kycFields": {
     "US": [],
@@ -31,6 +34,7 @@
     "HK": ["DateOfBirth", "Gender", "PlaceOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
     "RU": ["CountryOfResidence", "IdentityDocumentType", "IdentityDocumentNumber", "DateOfBirth", "SecondaryIdentityDocumentType", "SecondaryIdentityDocumentNumber"],
     "TH": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+    "TW": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
     "DEFAULT_FULL": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"]
   },
   "kycIdTypes": {
@@ -39,7 +43,9 @@
     "KR": ["PASSPORT_NUMBER", "DRIVERS_LICENSE"],
     "RU": ["PASSPORT_NUMBER"],
     "TH": ["NATIONAL_ID"],
-    "HK": ["NATIONAL_ID", "PASSPORT_NUMBER", "TEMPORARY_NATIONAL_ID"]
+    "HK": ["NATIONAL_ID", "PASSPORT_NUMBER", "TEMPORARY_NATIONAL_ID"],
+    "MX": ["CURP"],
+    "TW": ["NATIONAL_ID"]
   },
   "countries": {
     "US": {
@@ -57,14 +63,14 @@
     "GB": {
       "kyc_fields": ["DateOfBirth", "Nationality"],
       "id_types": [],
-      "extra_fields": [],
-      "notes": "signup 表单含 cardNumber/expiry/cvv(非必须), 有 billingState/City; 无身份证字段"
+      "extra_fields": ["residentialAddress(必填, 与billingAddress同值, 缺则 RESIDENTIAL_ADDRESS_NOT_FOUND)"],
+      "notes": "signup 表单含 cardNumber/expiry/cvv(非必须), 有 billingState/City; 无身份证字段; 必须传 residentialAddress"
     },
     "MX": {
       "kyc_fields": ["DateOfBirth"],
-      "id_types": [],
-      "extra_fields": ["bank(可选:BANAMEX/BANCOAZTECA/BBVA/BANORTE/HSBC/INBURSA/SANTANDER)"],
-      "notes": "CURP 仅当被要求时提供 (18位 base37 mod-10 已实现)"
+      "id_types": ["CURP"],
+      "extra_fields": ["bank(可选:BANAMEX/BANCOAZTECA/BBVA/BANORTE/HSBC/INBURSA/SANTANDER)", "residentialAddress(与billingAddress同值)"],
+      "notes": "CURP 仅当被要求时提供 (18位 base37 mod-10 已实现, 需姓名/dob/性别/州上下文); CDMX 邮编 00xxx-01xxx 区段"
     },
     "TH": {
       "kyc_fields": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
@@ -153,14 +159,20 @@
     "HK": {
       "kyc_fields": ["DateOfBirth", "Gender", "PlaceOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
       "id_types": ["NATIONAL_ID", "PASSPORT_NUMBER", "TEMPORARY_NATIONAL_ID"],
-      "extra_fields": ["性别/出生地/国籍"],
-      "notes": "唯一带 Gender/PlaceOfBirth 的国家"
+      "extra_fields": ["gender(MALE/FEMALE)", "placeOfBirth(ISO2)", "nationality"],
+      "notes": "唯一带 Gender/PlaceOfBirth 的国家; SignUpNewMember 须按 kycFields 发送 gender/placeOfBirth"
     },
     "RU": {
       "kyc_fields": ["CountryOfResidence", "IdentityDocumentType", "IdentityDocumentNumber", "DateOfBirth", "SecondaryIdentityDocumentType", "SecondaryIdentityDocumentNumber"],
       "id_types": ["PASSPORT_NUMBER"],
-      "extra_fields": ["secondaryIdentityDocument"],
-      "notes": "唯一带 secondary identity (TAX_IDENTIFICATION_NUMBER/PENSION_FUND_ID) 的国家"
+      "extra_fields": ["secondaryIdentityDocument(IdentityDocumentInput)"],
+      "notes": "唯一带 secondary identity (TAX_IDENTIFICATION_NUMBER 12位/ PENSION_FUND_ID СНИЛС 11位); 已实现双 mod-11 校验"
+    },
+    "TW": {
+      "kyc_fields": ["DateOfBirth", "Nationality", "IdentityDocumentType", "IdentityDocumentNumber"],
+      "id_types": ["NATIONAL_ID"],
+      "extra_fields": ["residentialAddress(与billingAddress同值)"],
+      "notes": "国民身分证 10 位 (1 字母 + 9 数字), 字母两位数映射 + 权重 1,9,8,7,6,5,4,3,2,1 + check=(10-sum%10)%10; 台北邮编 3 位 100/106 区段"
     },
     "IN": {
       "kyc_fields": ["Nationality"],

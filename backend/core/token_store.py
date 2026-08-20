@@ -416,6 +416,29 @@ class TokenStore:
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, r)) for r in rows]
 
+    async def count_idle(self, source: str | None = None) -> int:
+        """status='idle' 的账号计数（供一键流程守护判断是否需要注册更多）。"""
+        if source:
+            cur = await self.db.execute(
+                "SELECT COUNT(*) FROM tokens WHERE status='idle' AND source=?", (source,))
+        else:
+            cur = await self.db.execute("SELECT COUNT(*) FROM tokens WHERE status='idle'")
+        (cnt,) = await cur.fetchone()
+        return int(cnt or 0)
+
+    async def list_idle_tokens(self, source: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """status='idle' 的账号列表（供一键流程守护触发提链，按创建时间倒序）。"""
+        if source:
+            cur = await self.db.execute(
+                "SELECT * FROM tokens WHERE status='idle' AND source=? ORDER BY created_at DESC LIMIT ?",
+                (source, limit))
+        else:
+            cur = await self.db.execute(
+                "SELECT * FROM tokens WHERE status='idle' ORDER BY created_at DESC LIMIT ?", (limit,))
+        rows = await cur.fetchall()
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in rows]
+
     async def get_token(self, token_id: str) -> dict[str, Any] | None:
         cur = await self.db.execute("SELECT * FROM tokens WHERE id=?", (token_id,))
         row = await cur.fetchone()
@@ -428,6 +451,16 @@ class TokenStore:
         cur = await self.db.execute("DELETE FROM tokens WHERE id=?", (token_id,))
         await self.db.commit()
         return cur.rowcount > 0
+
+    async def bulk_delete_tokens(self, token_ids: list[str]) -> int:
+        """批量删除 token，返回实际删除条数。"""
+        if not token_ids:
+            return 0
+        placeholders = ",".join("?" * len(token_ids))
+        cur = await self.db.execute(
+            f"DELETE FROM tokens WHERE id IN ({placeholders})", token_ids)
+        await self.db.commit()
+        return cur.rowcount
 
     async def import_raw(self, raw: str, source: str = "stripe") -> tuple[int, int, list[dict]]:
         """批量导入。返回 (imported, failed, tokens)。source 标记 token 库来源(分支隔离)。"""
@@ -651,6 +684,16 @@ class TokenStore:
         await self.db.commit()
         return cur.rowcount
 
+    async def bulk_delete_inventory(self, ids: list[int]) -> int:
+        """批量删除成功库存记录，返回实际删除条数。"""
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        cur = await self.db.execute(
+            f"DELETE FROM success_inventory WHERE id IN ({placeholders})", ids)
+        await self.db.commit()
+        return cur.rowcount
+
     # ------------------------------------------------------------------
     # 样本
     # ------------------------------------------------------------------
@@ -689,6 +732,16 @@ class TokenStore:
         cur = await self.db.execute("SELECT COUNT(*) FROM samples WHERE success=0")
         (f,) = await cur.fetchone()
         return s, f
+
+    async def bulk_delete_samples(self, ids: list[int]) -> int:
+        """批量删除样本记录，返回实际删除条数。"""
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        cur = await self.db.execute(
+            f"DELETE FROM samples WHERE id IN ({placeholders})", ids)
+        await self.db.commit()
+        return cur.rowcount
 
     async def close(self) -> None:
         if self._db:

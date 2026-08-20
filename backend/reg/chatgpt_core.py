@@ -43,7 +43,7 @@ from . import sentinel_sdk
 from . import provider_stats
 # 711 住宅代理：curl_cffi 直连会 CONNECT aborted，需经本机 relay→Clash→711
 from core import proxy_711  # noqa: E402
-# 邮箱渠道: 内置 mailtm; 其余由调用方 (reg/engine) 自定义渠道注册表注入
+# 邮箱渠道: 全部由调用方 (reg/engine) 自定义渠道注册表注入
 import atexit
 atexit.register(lambda: sentinel_sdk.close_browser())
 
@@ -57,6 +57,13 @@ MAX_TOTAL_ATTEMPTS = 30
 # 登录取 cookie：authorize 落 email-verification 时走邮箱 OTP（两阶段等待）
 LOGIN_OTP_PHASE1_SEC = 45   # 先等 openai 自动下发的验证码，超时 resend
 LOGIN_OTP_PHASE2_SEC = 90   # resend 后只收新码
+
+# 注册流程 IMAP OTP 两阶段时长 (秒)
+IMAP_OTP_PHASE_SEC = 60        # 默认/密码流: 单阶段等待
+IMAP_OTP_WEB_PHASE_SEC = 90     # web 流 phase1: authorize 自动下发 OTP, IMAP 轮询有延迟
+IMAP_OTP_WEB_PHASE2_SEC = 90    # web 流 phase2: resend 后再等
+IMAP_OTP_ICLOUD_PHASE_SEC = 120  # icloud HME 转发延迟更大
+IMAP_OTP_DATE_SKEW_SEC = 30     # not_before 时间容差 (防 clock skew)
 
 
 def _build_chrome_fp(
@@ -403,7 +410,7 @@ FP_POOL: list = [
     ),
 ]
 
-# 向后兼容：默认全局常量指向池中首项（mail.tm 等非 OpenAI 路径可继续用）
+# 向后兼容：默认全局常量指向池中首项（非 OpenAI 路径可继续用）
 _DEFAULT_FP = FP_POOL[0]
 UA = _DEFAULT_FP["ua"]
 IMPERSONATE = _DEFAULT_FP["impersonate"]
@@ -605,163 +612,6 @@ def _bind_oai_did(session, did: str) -> None:
         session.cookies.set("oai-did", did, domain="chatgpt.com", path="/")
     except Exception:
         pass
-
-# ========== 1. Mail.tm 临时邮箱处理模块 ==========
-
-def rstr(n=10): 
-    return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
-
-
-def _local_or_env_proxies():
-    """DDG / mail.tm 等「不能走 711 住宅池」的 API 用代理。
-
-    根因修复：旧逻辑清空 HTTP_PROXY 强制真·直连，但 quack.duckduckgo.com /
-    api.mail.tm 在国内网络真直连会 curl: (28) 超时；而裸 curl_cffi 测试能通，
-    正是因为 libcurl 默认读取 HTTP_PROXY=本机 Clash(7897)。
-
-    策略：
-      1) 使用环境变量中的本机/通用代理（跳过 711 与本机 711 relay）
-      2) 探测 Clash mixed-port（7897/17897/7890）
-      3) 都没有才返回 None（真直连）
-    绝不把 run() 传入的 711 sticky session 用到这些 API 上。
-    """
-    import socket
-
-    def _is_711_like(url: str) -> bool:
-        if not url:
-            return False
-        if proxy_711.is_711_proxy(url):
-            return True
-        low = url.lower()
-        # proxy_711 链式中继默认端口
-        if "127.0.0.1:18792" in low or "localhost:18792" in low:
-            return True
-        return False
-
-    for k in (
-        "HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy",
-        "ALL_PROXY", "all_proxy",
-    ):
-        v = (os.environ.get(k) or "").strip()
-        if not v or _is_711_like(v):
-            continue
-        return {"http": v, "https": v}
-
-    for item in ("127.0.0.1:7897", "127.0.0.1:17897", "127.0.0.1:7890"):
-        host, port_s = item.rsplit(":", 1)
-        try:
-            sock = socket.create_connection((host, int(port_s)), timeout=0.6)
-            sock.close()
-            u = f"http://{item}"
-            return {"http": u, "https": u}
-        except OSError:
-            continue
-    return None
-
-
-def mreq(mt, pt, js=None, tk=None, proxies=None):
-    hdrs = {
-        "content-type": "application/json",
-        "accept": "application/json",
-        "user-agent": UA,
-        "pragma": "no-cache"
-    }
-    if tk: 
-        hdrs["authorization"] = f"Bearer {tk}"
-    # mail.tm 不走 711；若调用方未指定代理，用本机 Clash / HTTP_PROXY（勿清空 env）
-    if proxies is None:
-        proxies = _local_or_env_proxies()
-    try:
-        with Session(proxies=proxies) as s:
-            return s.request(mt, f"https://api.mail.tm{pt}", json=js, headers=hdrs, timeout=20)
-    except: 
-        return None
-
-def getotp(tk, proxies=None, cancel_check=None):
-    for _ in range(60):
-        if cancel_check and cancel_check():
-            return None
-        r = mreq("GET", "/messages", tk=tk, proxies=proxies)
-        if r and r.status_code == 200:
-            try: 
-                dat = r.json()
-            except: 
-                time.sleep(8); continue
-                
-            msgs = dat.get("hydra:member", []) if isinstance(dat, dict) else dat
-            if not isinstance(msgs, list): msgs = []
-                
-            for m in msgs:
-                if not isinstance(m, dict): continue
-                sb = m.get("subject", "")
-                intro = m.get("intro", "")
-                if "OpenAI" in sb or "ChatGPT" in sb or "code" in intro:
-                    rb = mreq("GET", f"/messages/{m.get('id')}", tk=tk, proxies=proxies)
-                    if rb and rb.status_code == 200:
-                        txt = rb.json().get("text", "")
-                        mt = re.search(r"(\d{6})", txt) or re.search(r"(\d{6})", sb)
-                        if mt: 
-                            return mt.group(1)
-        # 拆分 8 秒睡眠为 1 秒粒度，便于及时响应取消信号
-        for _ in range(8):
-            if cancel_check and cancel_check():
-                return None
-            time.sleep(1)
-    return None
-
-def setup_mail_tm(proxies=None, cancel_check=None):
-    """动态获取 mail.tm 邮箱并返回所需数据"""
-    mail_pw = "at41rvxgptye"
-    
-    # 动态获取当前可用的邮箱域名
-    domain_res = mreq("GET", "/domains", proxies=proxies)
-    if not domain_res or domain_res.status_code != 200:
-        print("  [!] 无法获取可用邮箱域名")
-        return None, None, None
-    
-    try:
-        js_data = domain_res.json()
-        if isinstance(js_data, list):
-            domains_data = js_data
-        elif isinstance(js_data, dict):
-            domains_data = js_data.get("hydra:member", js_data.get("hydra:collection", []))
-        else:
-            domains_data = []
-
-        if not domains_data:
-            print("  [!] 域名列表为空")
-            return None, None, None
-            
-        active_domain = domains_data[0].get("domain")
-    except Exception as e:
-        print(f"  [!] 解析域名失败: {e}")
-        return None, None, None
-
-    email = f"{rstr(10)}@{active_domain}"
-    openai_password = _gen_password()  # 为 OpenAI 账户生成高强度密码
-    
-    # 注册 mail.tm 邮箱
-    r = mreq("POST", "/accounts", {"address": email, "password": mail_pw}, proxies=proxies)
-    if not r or r.status_code not in [200, 201]: 
-        print(f"  [!] 邮箱注册被拒: {r.text if r else '无响应'}")
-        return None, None, None
-        
-    # 获取 mail.tm 的 Token
-    r = mreq("POST", "/token", {"address": email, "password": mail_pw}, proxies=proxies)
-    if not r or r.status_code != 200: 
-        print("  [!] 获取邮箱 Token 失败")
-        return None, None, None
-        
-    mail_token = r.json().get("token")
-    if not mail_token:
-        return None, None, None
-
-    # 定义提取验证码的闭包函数
-    def fetch_code():
-        print("  [*] 正在等待验证码 (最多等待约8分钟)...")
-        return getotp(mail_token, proxies=proxies, cancel_check=cancel_check)
-        
-    return email, openai_password, fetch_code
 
 
 def _msg_date_ts(msg):
@@ -1215,12 +1065,15 @@ def start_nextauth_openai_oauth(
         **_make_trace_headers(),
     }
     try:
-        session.get(
+        # stream 模式只拿 Set-Cookie (__Host-next-auth.csrf-token), 不下载 HTML body (~976KB)
+        # 该页面 body 从不被解析, 纯为种 csrf cookie, 截断可省约 1MB 下传/号。
+        _warmup_login = session.get(
             "https://chatgpt.com/auth/login",
-            timeout=20,
+            timeout=20, stream=True,
             headers={**nav_headers, "referer": "https://chatgpt.com/"},
             impersonate=impersonate,
         )
+        _warmup_login.close()
     except Exception as e:
         print(f"[~] /auth/login 预热异常: {repr(e)[:100]}")
 
@@ -1390,6 +1243,7 @@ def finish_nextauth_access_token(session, continue_url: str) -> tuple[str, str]:
                 current,
                 timeout=30,
                 allow_redirects=False,
+                stream=True,
                 headers=nav_headers if hop == 0 else {
                     **nav_headers,
                     "referer": current if hop else "https://auth.openai.com/",
@@ -1405,9 +1259,13 @@ def finish_nextauth_access_token(session, continue_url: str) -> tuple[str, str]:
                 final_url = str(getattr(resp, "url", None) or current)
                 # 非重定向终点
                 if resp.status_code >= 400:
+                    # 错误时才下载 body 用于诊断
                     print(f"[!] callback 终点 HTTP {resp.status_code} body={resp.text[:200]}")
+                else:
+                    resp.close()  # 成功: 丢弃 body
                 break
             next_url = urllib.parse.urljoin(current, loc)
+            resp.close()  # 重定向跳: 丢弃中间响应 body
             if "error=" in next_url or "/auth/error" in next_url:
                 print(f"[!] next-auth callback 失败: {next_url[:160]}")
                 return "", ""
@@ -1569,10 +1427,12 @@ def _resend_email_otp(s, did, ua, impersonate) -> bool:
             "https://auth.openai.com/api/accounts/email-otp/send",
             headers=headers,
             timeout=15,
+            stream=True,
             impersonate=impersonate,
             allow_redirects=False,
         )
         ok = r.status_code in (200, 302, 303, 307, 308)
+        r.close()  # 只需 status_code, 不下载 body
         print(f"[*] resend OTP email-otp/send status={r.status_code} ok={ok}")
         return ok
     except Exception as e:
@@ -1589,7 +1449,7 @@ def _wait_otp_imap_two_phase(code_fetcher, s, did, ua, impersonate, cancel_check
     web 路径由 run() 传入 IMAP_OTP_WEB_PHASE_SEC / IMAP_OTP_WEB_PHASE2_SEC。
     not_before：phase1 用 otp_issued_at（或 now）；resend 成功后 phase2 用 resend_at，
     避免 phase2 提到 OTP1 → validate invalid_state。
-    seen_ids 跨阶段复用。mail.tm 路径不走此函数。
+    seen_ids 跨阶段复用。IMAP 渠道路径不走此函数。
     """
     phase1 = IMAP_OTP_PHASE_SEC if phase1_sec is None else int(phase1_sec)
     phase2 = IMAP_OTP_PHASE_SEC if phase2_sec is None else int(phase2_sec)
@@ -1656,16 +1516,29 @@ def login_with_password(proxy, email, password, cancel_check=None, code_fetcher=
     s.headers.update(chrome_fp)
     _bind_session_fp(s, fp)
     _bind_oai_did(s, did)
+    # 包装 session.request 以记录代理流量 (归 BLOCK_REGISTER, 由 engine.py 设置 threadlocal)
+    _orig_req_login = s.request
+    def _traced_req_login(*a, **kw):
+        r = _orig_req_login(*a, **kw)
+        if not kw.get("stream"):
+            try:
+                from core.traffic import record_response
+                record_response(r)
+            except Exception:
+                pass
+        return r
+    s.request = _traced_req_login
 
     try:
-        # 第零步：chatgpt.com 拿 Cloudflare cookies（同 run()）
+        # 第零步：chatgpt.com 拿 Cloudflare cookies（同 run()，stream 省流）
         try:
-            s.get("https://chatgpt.com/", timeout=20, headers={
+            _warmup = s.get("https://chatgpt.com/", timeout=20, stream=True, headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": chrome_fp.get("accept-language", "en-US,en;q=0.9"),
                 "Upgrade-Insecure-Requests": "1",
                 "user-agent": ua, **_make_trace_headers(),
             }, impersonate=impersonate)
+            _warmup.close()
             print("[login] 已访问 chatgpt.com 获取 CF cookies")
         except Exception as e:
             print(f"[login] chatgpt.com 访问异常（继续）: {repr(e)[:100]}")
@@ -1701,11 +1574,12 @@ def login_with_password(proxy, email, password, cancel_check=None, code_fetcher=
                 return None
 
             _human_delay(0.3, 1.2, f"before authorize attempt={attempt}")
-            resp = s.get(oauth.auth_url, timeout=25, headers=oauth_headers, allow_redirects=True)
+            resp = s.get(oauth.auth_url, timeout=25, stream=True, headers=oauth_headers, allow_redirects=True)
             _bind_oai_did(s, did)
             final_url = str(getattr(resp, "url", "") or "")
             print(f"[login] authorize status={resp.status_code} url={final_url[:110]} "
                   f"cookies={_auth_session_flags(s)}")
+            resp.close()  # 只需 final_url + Set-Cookie, 不下载 HTML body (~62KB)
 
             # 若 authorize 直接跳到 chatgpt.com 回调（极少见），直接收尾
             cb = _parse_callback_url(final_url)
@@ -1857,11 +1731,11 @@ def register_email_channel(name: str, setup_fn) -> None:
 
 
 def list_email_channels() -> list:
-    """内置 + 自定义渠道名列表（面板下拉用）。"""
-    return ["mailtm"] + sorted(CUSTOM_EMAIL_CHANNELS.keys())
+    """已注册的自定义邮箱渠道名列表（面板下拉用）。"""
+    return sorted(CUSTOM_EMAIL_CHANNELS.keys())
 
 
-def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_label=None) -> Optional[tuple]:
+def run(proxy: Optional[str], email: str = "", cancel_check=None, imap_label=None) -> Optional[tuple]:
     # 返回 5-tuple: (token_json, email, password, access_token, session_token)
     #   - web 流: token_json=None, access_token+session_token 来自 chatgpt.com/api/auth/session
     #   - Codex 流: token_json=JSON串(含 refresh_token), access_token/session_token 均为 ""
@@ -1896,13 +1770,18 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
     # 保存邮箱模式：后面 mail_data 会覆盖 email 变量为具体地址
     email_mode = email
     print(f"[*] 初始化请求，准备使用 {email} 邮箱注册...")
-    if email == "mailtm":
-        mail_data = setup_mail_tm(proxies=None, cancel_check=cancel_check)  # mail.tm 直连，不走 711 代理
-    elif email in CUSTOM_EMAIL_CHANNELS:
+    if not email:
+        chans = list_email_channels()
+        if not chans:
+            print("[Error] 无可用邮箱渠道（邮箱池为空，请先在邮箱池添加 IMAP 账号）")
+            return None
+        email = chans[0]
+        print(f"[*] 未指定渠道，自动选用第一个: {email}")
+    if email in CUSTOM_EMAIL_CHANNELS:
         # 调用方 (reg/engine) 注册的自定义邮箱渠道
         mail_data = CUSTOM_EMAIL_CHANNELS[email](proxies, cancel_check=cancel_check)
     else:
-        print(f"[Error] 未知邮箱渠道: {email!r}（内置 mailtm；自定义渠道见 reg/engine.register_email_channel）")
+        print(f"[Error] 未知邮箱渠道: {email!r}（可用渠道: {list_email_channels() or '无'}）")
         return None
     if not mail_data or not mail_data[0]:
         print(f"[Error] 获取 {email} 邮箱失败")
@@ -1916,7 +1795,7 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
     print(f"[*] 成功获取邮箱: {email}")
     if password:
         # 对 duck/163/dms 路径：password 是 OpenAI 账户密码；
-        # mail.tm 路径第二返回值也是 OpenAI 密码（mail.tm 收信密码另存）。
+        # 渠道第二返回值是 OpenAI 账户密码（IMAP 收信密码另存）。
         print(f"[*] OpenAI 账户密码已生成（len={len(password)}）")
     else:
         print("[!] 未生成 OpenAI 密码，password 流程将失败")
@@ -1935,17 +1814,33 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
     s.headers.update(chrome_fp)
     _bind_session_fp(s, fp)
     _bind_oai_did(s, did)
+    # 包装 session.request 以记录代理流量 (归 BLOCK_REGISTER, 由 engine.py 设置 threadlocal)
+    _orig_req_run = s.request
+    def _traced_req_run(*a, **kw):
+        r = _orig_req_run(*a, **kw)
+        # stream 请求的 body 未下载, 跳过流量统计 (避免触发 content 读取)
+        if not kw.get("stream"):
+            try:
+                from core.traffic import record_response
+                record_response(r)
+            except Exception:
+                pass
+        return r
+    s.request = _traced_req_run
 
     try:
         # 第零步：先访问 chatgpt.com 拿 Cloudflare cookies（cf_clearance/__cf_bm 等）。
         # oai-did 已强制写入；响应后仍以本号 did 为准（防服务端 Set-Cookie 关联设备）。
+        # 用 stream 模式只拿响应头 (Set-Cookie), 不下载完整 HTML body (~500KB),
+        # 首页 body 从不被解析, 纯为种 CF cookie, 截断可省 ~500KB 下传/号。
         try:
-            s.get("https://chatgpt.com/", timeout=20, headers={
+            _warmup = s.get("https://chatgpt.com/", timeout=20, stream=True, headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": chrome_fp.get("accept-language", "en-US,en;q=0.9"),
                 "Upgrade-Insecure-Requests": "1",
                 "user-agent": ua, **_make_trace_headers(),
             }, impersonate=impersonate)
+            _warmup.close()
             print("[*] 已访问 chatgpt.com 获取 CF cookies")
         except Exception as e:
             print(f"[~] chatgpt.com 访问异常（继续）: {repr(e)[:100]}")
@@ -1984,7 +1879,7 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
                 oauth = generate_oauth_url(login_hint=email, device_id=did)
 
             _human_delay(0.3, 1.2, f"before authorize attempt={attempt}")
-            resp = s.get(oauth.auth_url, timeout=25, headers=oauth_headers, allow_redirects=True)
+            resp = s.get(oauth.auth_url, timeout=25, stream=True, headers=oauth_headers, allow_redirects=True)
             # 保持本号 did 固定，不采用服务端可能下发的其它 oai-did
             _bind_oai_did(s, did)
             flags = _auth_session_flags(s)
@@ -1995,14 +1890,17 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
             if did and (flags.get("oai_login_csrf") or flags.get("login_session")
                         or flags.get("oai_client_auth_session")
                         or "email-verification" in final_url):
+                resp.close()  # 成功: 不需 body, 丢弃
                 auth_ok = True
                 break
             reason = f"HTTP {resp.status_code}"
             err_code = ""
+            body_snippet = ""
             try:
                 err_json = resp.json()
                 err_code = err_json.get("error", {}).get("code", "")
                 err_msg = err_json.get("error", {}).get("message", "")
+                body_snippet = f"json err={err_code}"
                 if err_code == "unsupported_country_region_territory":
                     # 出口 IP 地区不支持：重试当前号/代理必败，立即放弃换下一个邮箱
                     reason = "HTTP 403 - 出口 IP 所在地区不受 OpenAI 支持，请用美国等支持地区代理"
@@ -2011,8 +1909,20 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
                 elif err_code:
                     reason = f"HTTP {resp.status_code} - {err_code}: {err_msg}"
             except Exception:
-                pass
-            print(f"[Warn] authorize 会话未就绪 ({reason}, 第 {attempt}/{MAX_STAGE_RETRY} 次)")
+                # 非 JSON 响应体（典型 Cloudflare/OpenAI 反爬 403 HTML 页）
+                try:
+                    txt = resp.text or ""
+                    body_snippet = txt[:200].replace("\n", " ").strip()
+                    _low = txt.lower()
+                    if "cloudflare" in _low and ("attention required" in _low or "cf-error" in _low
+                                                 or "just a moment" in _low or "challenge" in _low):
+                        body_snippet = f"[CF挑战页] {body_snippet[:120]}"
+                    elif "access denied" in _low or "blocked" in _low:
+                        body_snippet = f"[拒绝访问] {body_snippet[:120]}"
+                except Exception:
+                    pass
+            print(f"[Warn] authorize 会话未就绪 ({reason}, 第 {attempt}/{MAX_STAGE_RETRY} 次) "
+                  f"body={body_snippet}")
             if attempt < MAX_STAGE_RETRY:
                 # §3.2 指数退避 + 抖动：base * 2^(n-1) + U(0,1)
                 _retry_backoff(attempt, base=0.8)
@@ -2021,6 +1931,19 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
                 s.headers.clear()
                 s.headers.update(chrome_fp)
                 _bind_session_fp(s, fp)
+                _bind_oai_did(s, did)
+                # 重建 session 后必须重做 CF 预热，否则 cf_clearance/__cf_bm 缺失，
+                # authorize 越重试越容易撞 Cloudflare 403
+                try:
+                    _warmup = s.get("https://chatgpt.com/", timeout=20, stream=True, headers={
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": chrome_fp.get("accept-language", "en-US,en;q=0.9"),
+                        "Upgrade-Insecure-Requests": "1",
+                        "user-agent": ua, **_make_trace_headers(),
+                    }, impersonate=impersonate)
+                    _warmup.close()
+                except Exception as _e:
+                    print(f"[~] 重试 CF 预热异常（继续）: {repr(_e)[:100]}")
                 _bind_oai_did(s, did)
         if not did:
             print("[Error] 未能获取到 OpenAI Device ID (oai-did) - 见上方具体原因")
@@ -2068,7 +1991,8 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
             if _pwd_resp.status_code != 200:
                 print("[Error] user/register 失败")
                 return None
-            s.get("https://auth.openai.com/api/accounts/email-otp/send", headers=_pwd_headers, timeout=15, impersonate=impersonate)
+            _otp_send = s.get("https://auth.openai.com/api/accounts/email-otp/send", headers=_pwd_headers, timeout=15, stream=True, impersonate=impersonate)
+            _otp_send.close()  # 只需触发 OTP 发送, 不下载 body
             print("[*] 密码流程 user/register 成功，已触发 email-otp/send")
             # password 流：OTP 在 email-otp/send 后才发出
             otp_issued_at = time.time()
@@ -2076,10 +2000,10 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
             # web 流：authorize 带 login_hint 已自动发送 OTP，无密码步、无 authorize/continue
             print(f"[*] web 流：authorize 完成 did={did[:8]}... OTP 应已发送（无密码步）")
 
-        # 等 OTP（mail.tm API 直读 / 163 IMAP / duck 转发 / icloud HME）
+        # 等 OTP（IMAP 直读 / duck 转发 / icloud HME）
         # duck/163：两阶段 IMAP；password 保持 10s×2，web 用更长 phase 覆盖 DDG 延迟。
         # icloud：复用 web 两阶段时长，allow_resend=False（HME 转发对 resend 支持未知，避免拿错码）。
-        # mail.tm / dms：保持原 code_fetcher() 逻辑不变。
+        # IMAP / dms：保持原 code_fetcher() 逻辑不变。
         if email_mode in ("duck", "163"):
             if is_password_flow:
                 code = _wait_otp_imap_two_phase(
@@ -2098,6 +2022,15 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
                 code_fetcher, s, did, ua, impersonate, cancel_check=cancel_check,
                 phase1_sec=IMAP_OTP_ICLOUD_PHASE_SEC, phase2_sec=IMAP_OTP_WEB_PHASE2_SEC,
                 allow_resend=False, otp_issued_at=otp_issued_at,
+            )
+        elif str(email_mode).startswith("imap:"):
+            # 自建 IMAP 渠道 (catch-all 收件箱): 必须走两阶段 + not_before 时间过滤,
+            # 否则 code_fetcher() 无 not_before 会逆序取到收件箱里别的号的旧 OTP
+            # → wrong_email_otp_code 401。allow_resend=True 兜底 phase2 重发。
+            code = _wait_otp_imap_two_phase(
+                code_fetcher, s, did, ua, impersonate, cancel_check=cancel_check,
+                phase1_sec=IMAP_OTP_WEB_PHASE_SEC, phase2_sec=IMAP_OTP_WEB_PHASE2_SEC,
+                allow_resend=True, otp_issued_at=otp_issued_at,
             )
         else:
             code = code_fetcher()
@@ -2177,7 +2110,7 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
         except Exception as e:
             print(f"[~] 解析 validate body 失败（继续 GET about-you）: {e}")
         try:
-            s.get(about_url, timeout=20, headers={
+            _ay = s.get(about_url, timeout=20, stream=True, headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": chrome_fp.get("accept-language", "en-US,en;q=0.9"),
                 "Upgrade-Insecure-Requests": "1",
@@ -2188,6 +2121,7 @@ def run(proxy: Optional[str], email: str = "mailtm", cancel_check=None, imap_lab
                 "sec-fetch-site": "same-origin",
                 **_make_trace_headers(),
             }, impersonate=impersonate)
+            _ay.close()  # 只需 Set-Cookie, 不下载 HTML body (~63KB)
             print(f"[*] 已 GET about-you 推进会话 cookies={_auth_session_flags(s)}")
         except Exception as e:
             print(f"[~] GET about-you 异常（继续 create_account）: {repr(e)[:120]}")
@@ -2374,7 +2308,7 @@ def main():
              "http://USER:PASS@global.rotgb.711proxy.com:10000 "
              "（711 会自动改写为 Clash 链式中继）",
     )
-    parser.add_argument("--email", choices=["mailtm", *list_email_channels()], default="mailtm", help="注册邮箱来源（默认 mailtm，dms=自建docker-mailserver，icloud=Hide My Email，outlookpool=本机邮箱池）")
+    parser.add_argument("--email", choices=list_email_channels(), default="", help="注册邮箱来源（留空=自动选第一个可用渠道；imap:<标签>=自建域名邮箱）")
     parser.add_argument("--once", action="store_true", help="只运行一次")
     parser.add_argument("--count", type=int, default=0, help="总注册次数（0=无限，配合 --once 等价于1）")
     args = parser.parse_args()
