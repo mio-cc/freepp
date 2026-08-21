@@ -90,7 +90,7 @@ export function CountrySelect({
         >
           {sel === AUTO ? autoLabel : display.label}
         </span>
-        <span style={{ opacity: 0.6, fontSize: 10 }}>{disabled ? "<LockIcon />" : open ? "▲" : "▼"}</span>
+        <span style={{ opacity: 0.6, fontSize: 10 }}>{disabled ? "·" : open ? "▲" : "▼"}</span>
       </button>
       {open && !disabled && (
         <div

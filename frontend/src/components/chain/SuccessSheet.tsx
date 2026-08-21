@@ -51,7 +51,7 @@ export function SuccessSheet({ url, meta, onClose }: Props) {
           <textarea className="textarea" readOnly value={url} rows={3} />
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button className="btn btn-primary" onClick={copyUrl}>
-              {copied ? "<CheckIcon /> 已复制" : "复制 URL"}
+              {copied ? "已复制" : "复制 URL"}
             </button>
             <button className="btn" onClick={() => window.open(url, "_blank")}>
               在浏览器中打开

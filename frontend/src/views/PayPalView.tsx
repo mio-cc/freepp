@@ -336,7 +336,7 @@ export function PayPalView() {
             if (r.status === "running") {
               items.push({ ts: Date.now(), token: r.ba_token, level: "info", msg: `授权启动 · 步骤 ${baStepCn(r.step)}` });
             } else if (r.status === "success") {
-              items.push({ ts: Date.now(), token: r.ba_token, level: "ok", msg: "授权成功 <CheckIcon />" });
+              items.push({ ts: Date.now(), token: r.ba_token, level: "ok", msg: "授权成功" });
             } else if (r.status === "failed") {
               items.push({ ts: Date.now(), token: r.ba_token, level: "err", msg: `授权失败: ${r.error || "未知原因"}` });
             } else if (r.status === "pending") {
@@ -1139,8 +1139,8 @@ export function PayPalView() {
               data-save-state={configSaveState}
             >
               {configSaveState === "saving" && "保存中…"}
-              {configSaveState === "saved" && "已保存 <CheckIcon />"}
-              {configSaveState === "error" && "保存失败 <XIcon />"}
+              {configSaveState === "saved" && "已保存"}
+              {configSaveState === "error" && "保存失败"}
             </span>
           </div>
           <div className="card-body">
@@ -1615,7 +1615,7 @@ export function PayPalView() {
                   <span className="dr-label">代理出口实测</span>
                   <span className="dr-value">
                     {detailRecord.geo_country || detailRecord.proxy_country || "—"}
-                    {detailRecord.geo_country && detailRecord.geo_country !== (detailRecord.identity_country || detailRecord.country) ? " <WarnIcon /> 不一致" : ""}
+                    {detailRecord.geo_country && detailRecord.geo_country !== (detailRecord.identity_country || detailRecord.country) ? "不一致" : ""}
                   </span>
                 </div>
                 <div className="detail-row">

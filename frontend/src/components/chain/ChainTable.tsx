@@ -117,7 +117,7 @@ function ChainTableInner({ chainList, onClick }: Props) {
                           style={{ fontSize: 10 }}
                         >
                           {cs.channelDetect.channel}
-                          {cs.channelDetect.present ? " <CheckIcon />" : " <XIcon />"}
+                          {cs.channelDetect.present ? " OK" : " X"}
                         </span>
                       </div>
                     )}
@@ -146,7 +146,7 @@ function ChainTableInner({ chainList, onClick }: Props) {
                     const baseLabel = isOaics && oaicsSrc
                       ? `${OAICS_STAGE_CN[oaicsSrc]} (OAICS)`
                       : `${STAGE_CN[s]}`;
-                    const title = `${baseLabel}${req ? ` · 配置 ${req}` : ""}${drifted ? ` → 真实 ${act} <WarnIcon />` : geoTail}`;
+                    const title = `${baseLabel}${req ? ` · 配置 ${req}` : ""}${drifted ? ` → 真实 ${act} !` : geoTail}`;
                     let cls = "stage-cell chain-cell" + (isOaics ? " oaics" : "") + (drifted ? " drift" : "");
                     let label = "";
                     if (!oaicsSrc && isOaics) {
@@ -154,10 +154,10 @@ function ChainTableInner({ chainList, onClick }: Props) {
                       label = "·";
                     } else if (sd?.state === "ok") {
                       cls += " ok";
-                      label = drifted ? `${sd.country || "<CheckIcon />"}→${act}<WarnIcon />` : (sd.country || "<CheckIcon />");
+                      label = drifted ? `${sd.country || "OK"}→${act}!` : (sd.country || "OK");
                     } else if (sd?.state === "fail") {
                       cls += " fail";
-                      label = "<XIcon />";
+                      label = "X";
                     } else if (sd?.state === "run") {
                       cls += " run";
                       label = `try ${sd.tryN || 1}/${sd.maxTry || 3}`;

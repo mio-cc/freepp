@@ -72,7 +72,7 @@ export function ProxyView() {
       const r = await api("/api/proxy/711/smoke", "POST");
       if (r?.result) {
         const healthy = r.result.healthy;
-        setSmokeResult(healthy ? "<CheckIcon /> 链路正常" : "<XIcon /> 链路异常");
+        setSmokeResult(healthy ? "链路正常" : "链路异常");
         pushLog(`711 冒烟测试: ${healthy ? "成功" : "失败"}`, healthy ? "ok" : "err");
         await load711();
       } else {
@@ -238,7 +238,7 @@ export function ProxyView() {
             {smokeResult && (
               <span
                 style={{
-                  color: smokeResult.startsWith("<CheckIcon />") ? "var(--ok)" : "var(--danger)",
+                  color: smokeResult.includes("正常") ? "var(--ok)" : "var(--danger)",
                   fontSize: 11,
                 }}
               >

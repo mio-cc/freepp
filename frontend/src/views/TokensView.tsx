@@ -330,7 +330,7 @@ export function TokensView() {
 
   const promoBadge = (promo: string | undefined) => {
     if (!promo) return null;
-    if (promo === "yes") return { label: "优惠<CheckIcon />", cls: "badge-success" };
+    if (promo === "yes") return { label: "优惠", cls: "badge-success" };
     if (promo === "no") return { label: "无优惠", cls: "badge-muted" };
     return { label: promo.slice(0, 14), cls: "badge-warn" };
   };
@@ -834,7 +834,7 @@ function collectTokens(o: any, out: CalibItem[]) {
             {busy ? "导入中…" : "导入"}
           </button>
           <button className="btn" onClick={() => fileInputRef.current?.click()} disabled={busy || reading}>
-            {reading ? "读取中…" : "<FileIcon /> 选择文件"}
+            {reading ? "读取中…" : "选择文件"}
           </button>
           <button className="btn" onClick={() => dirInputRef.current?.click()} disabled={busy || reading}>
             选择文件夹

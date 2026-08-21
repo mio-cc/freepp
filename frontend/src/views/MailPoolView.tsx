@@ -87,7 +87,7 @@ export function MailPoolView() {
     setBusy(id);
     try {
       const r = await api<{ ok: boolean; status: string; last_error: string }>(`/api/mail_pool/${id}/test`, "POST");
-      setMsg(r.ok ? "连接成功 <CheckIcon />" : `连接失败: ${r.last_error || ""}`);
+      setMsg(r.ok ? "连接成功" : `连接失败: ${r.last_error || ""}`);
       await loadAll();
     } catch (e: any) { setMsg("测试失败: " + (e?.message || e)); }
     finally { setBusy(null); }

@@ -197,8 +197,8 @@ export function PipelineView() {
           <span className="card-title">守护配置</span>
           <span className="setting-hint" data-save-state={configSaveState === "idle" ? undefined : configSaveState}>
             {configSaveState === "saving" && "保存中…"}
-            {configSaveState === "saved" && "已保存 <CheckIcon />"}
-            {configSaveState === "error" && "保存失败 <XIcon />"}
+            {configSaveState === "saved" && "已保存"}
+            {configSaveState === "error" && "保存失败"}
           </span>
         </div>
         <div className="card-body">

@@ -122,7 +122,7 @@ export function SecretsView() {
           await api("/api/config/secrets", "POST", { section: sec, fields: secrets[sec] });
         } catch { /* ignore */ }
       }
-      setSavedFlash("已保存 <CheckIcon />");
+      setSavedFlash("已保存");
       setTimeout(() => setSavedFlash(""), 1500);
     }, 1000);
     return () => { if (saveSecretsTimer.current) clearTimeout(saveSecretsTimer.current); };
@@ -135,7 +135,7 @@ export function SecretsView() {
     saveCfgTimer.current = setTimeout(async () => {
       try {
         await api("/api/config/section", "POST", { section, fields });
-        setSavedFlash("已保存 <CheckIcon />");
+        setSavedFlash("已保存");
         setTimeout(() => setSavedFlash(""), 1500);
       } catch { /* ignore */ }
     }, 1000);
@@ -656,7 +656,7 @@ function EmailDomainsCard() {
     saveTimer.current = setTimeout(async () => {
       try {
         await api("/api/config/email_domains", "POST", { by_country: nextBy, fallback: nextFallback });
-        setSavedFlash("已保存 <CheckIcon />");
+        setSavedFlash("已保存");
         setTimeout(() => setSavedFlash(""), 1500);
       } catch { /* ignore */ }
     }, 800);
@@ -680,7 +680,7 @@ function EmailDomainsCard() {
       if (r?.ok) {
         setByCountry(r.by_country || {});
         setFallback(r.fallback || []);
-        setSavedFlash("已重置 <CheckIcon />");
+        setSavedFlash("已重置");
         setTimeout(() => setSavedFlash(""), 1500);
       }
     } catch { /* ignore */ }

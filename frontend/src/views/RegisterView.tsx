@@ -100,7 +100,7 @@ function DetailCopyRow({ label, value, k, copied, onCopy }: {
       <span className="dr-label">{label}</span>
       <span className="dr-value mono dr-clip">
         {empty ? "—" : maskSecret(value)}
-        {!empty && <span className={`dr-copy-badge${copied ? " show" : ""}`}>{copied ? "<CheckIcon /> 已复制" : "⧉"}</span>}
+        {!empty && <span className={`dr-copy-badge${copied ? " show" : ""}`}>{copied ? "已复制" : "⧉"}</span>}
       </span>
     </div>
   );
