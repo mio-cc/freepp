@@ -82,6 +82,10 @@
 - WS 连接正常（未登录时不空转重连，登录后正常连接）
 - 退出登录按钮在 sidebar 底部生效
 
+### commit
+- aaedd96 `feat: 现代玻璃拟态美化 + emoji 换 SVG 图标`（27 files, +470/-114）
+- e6b4dd2 `chore: gitignore playwright MCP artifacts + ui test screenshots`
+
 ### 美化实作不动的区块（已有完善设计）
 - .btn（纯色填充型，玻璃会降低对比度）
 - .empty / .empty-icon（透明容器 / 太小）
