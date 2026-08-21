@@ -71,6 +71,34 @@
   --sidebar-w: 216px;
   --sidebar-collapsed: 52px;
   --titlebar-h: 46px;
+
+  /* 字号 scale (统一字号层级) */
+  --mi-fs-2xs: 9.5px;   /* stage-try/stage-name 等微小标注 */
+  --mi-fs-xs:  10.5px;  /* nav-count/sidebar-label/tag/log-ts 等辅助 */
+  --mi-fs-sm:  11.5px;  /* stat-label/btn-sm/field-label/badge 等辅助 */
+  --mi-fs-base: 12.5px; /* btn/input/table/page-sub 正文 */
+  --mi-fs-md:  13px;    /* body 基准/card-title 正文标题 */
+  --mi-fs-lg:  13.5px;  /* brand-text/btn-lg/nav-item 略大正文 */
+  --mi-fs-xl:  15px;    /* sheet-title 中标题 */
+  --mi-fs-2xl: 17px;    /* empty-icon 中标题 */
+  --mi-fs-3xl: 20px;    /* page-title 页标题 */
+  --mi-fs-4xl: 26px;    /* stat-value 大数值 */
+
+  /* 行高 (统一行高节奏) */
+  --mi-lh-tight:   1.1;   /* 大数值/单行标题 */
+  --mi-lh-snug:    1.3;   /* 紧凑多行 */
+  --mi-lh-normal:  1.55;  /* 正文基准 */
+  --mi-lh-relaxed: 1.6;   /* textarea 多行输入 */
+  --mi-lh-loose:   1.75;  /* log-panel 等宽松阅读 */
+
+  /* 字距 (统一字距层级) */
+  --mi-ls-tight:    -0.02em;  /* 大标题紧凑 */
+  --mi-ls-normal:   -0.01em;  /* 默认标题 */
+  --mi-ls-flat:     0;        /* 正文 */
+  --mi-ls-wide:     0.01em;   /* 略松 */
+  --mi-ls-wider:    0.02em;   /* 品牌/标签 */
+  --mi-ls-caps:     0.06em;   /* uppercase 小标签 */
+  --mi-ls-caps-wide: 0.09em;  /* uppercase 表头 */
 }
 
 /* ── 别名层 (亮色) ───────────────────────────────────────────────
