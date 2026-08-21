@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useStore } from "../../store/useStore";
 import type { ViewName } from "../../types";
 
+const LOGOUT_ICON = `<path d="M9.5 2.5h-5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h5M6 8h8M11 5l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`;
+
 const COLLAPSE_KEY = "min.sidebar.collapsed";
 
 function readCollapsed(): boolean {
@@ -115,6 +117,7 @@ export function Sidebar() {
   const nodes = useStore((s) => s.nodes);
   const chainStates = useStore((s) => s.chainStates);
   const stats = useStore((s) => s.stats);
+  const logout = useStore((s) => s.logout);
   const [collapsed, setCollapsed] = useState<boolean>(readCollapsed);
   // 折叠动画状态机 (对齐 SidebarRoot.tsx):
   //  折叠: fading(宽内容淡出 150ms) → settled 后切 collapsed
@@ -214,14 +217,36 @@ export function Sidebar() {
           ))}
         </div>
       ))}
-      <div className="sidebar-footer">
-        <div className="sidebar-stat">
-          <span className="ss-label">成功累计</span>
-          <span className="ss-value">{totalSuccess}</span>
-        </div>
-        <div className="sidebar-stat">
-          <span className="ss-label">成功率</span>
-          <span className="ss-value">{rate}%</span>
+      <div
+        className="sidebar-footer"
+        style={{ flexDirection: "column", alignItems: "stretch", gap: "8px" }}
+      >
+        <button
+          type="button"
+          className="nav-item"
+          onClick={() => {
+            void logout();
+          }}
+          title="退出登录"
+          aria-label="退出登录"
+          style={{ color: "var(--danger)", width: "100%", justifyContent: "flex-start" }}
+        >
+          <svg
+            viewBox="0 0 16 16"
+            className="nav-icon"
+            dangerouslySetInnerHTML={{ __html: LOGOUT_ICON }}
+          />
+          <span className="nav-text">退出登录</span>
+        </button>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <div className="sidebar-stat">
+            <span className="ss-label">成功累计</span>
+            <span className="ss-value">{totalSuccess}</span>
+          </div>
+          <div className="sidebar-stat">
+            <span className="ss-label">成功率</span>
+            <span className="ss-value">{rate}%</span>
+          </div>
         </div>
       </div>
     </nav>

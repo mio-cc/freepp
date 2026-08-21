@@ -5,7 +5,7 @@ import { useStore } from "../store/useStore";
 /* ==========================================================================
    密钥与凭据页 — 把分散在 config.yaml / secrets.json / .env / 环境变量的
    API key、平台凭据、端点参数集中到前端可编辑, 写入后端落盘并热生效。
-   离线开源项目: 无需鉴权, 凭据原值可见 (密码框 type=password 防肩窥)。
+   已启用登录鉴权; 凭据原值可见 (密码框 type=password 防肩窥)。
    ========================================================================== */
 
 // ---- secrets.json 字段 (B 层: env 注入 + 热重载) ----
@@ -171,6 +171,9 @@ export function SecretsView() {
           <button className="btn btn-ghost btn-sm" onClick={() => setView("settings")}>← 返回设置</button>
         </div>
       </div>
+
+      {/* 0. 修改登录密码 */}
+      <ChangePasswordCard />
 
       {/* 1. 代理凭据 */}
       <div className="card">
@@ -550,6 +553,74 @@ function MoMoToggle({ label, field, cfg, setCfg, scheduleSave }: {
           <input type="checkbox" checked={cfg.momo[field]} onChange={(e) => { const v = e.target.checked; setCfg((c) => c ? { ...c, momo: { ...c.momo, [field]: v } } : c); scheduleSave("momo", { [field]: v }); }} />
           <span className="switch-track" />
         </label>
+      </div>
+    </div>
+  );
+}
+
+// 修改登录密码卡片
+function ChangePasswordCard() {
+  const [oldPw, setOldPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [msgType, setMsgType] = useState<"ok" | "err" | "">("");
+
+  const canSubmit = !saving && oldPw.length > 0 && newPw.length >= 8 && newPw === confirmPw;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSaving(true);
+    setMsg("");
+    setMsgType("");
+    try {
+      await api("/api/auth/password", "POST", { old_password: oldPw, new_password: newPw });
+      setOldPw(""); setNewPw(""); setConfirmPw("");
+      setMsg("密码已更新");
+      setMsgType("ok");
+    } catch (e: any) {
+      setMsg(e?.message || "更新失败");
+      setMsgType("err");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <span className="card-title">登录密码</span>
+        <span className="card-hint">面板登录密码 · 至少 8 位 · 首次启动时随机生成 (见后端终端)</span>
+      </div>
+      <div className="card-body">
+        <div className="setting-row">
+          <span className="setting-label">旧密码</span>
+          <div className="setting-control">
+            <input className="input" type="password" value={oldPw} onChange={(e) => setOldPw(e.target.value)} autoComplete="current-password" placeholder="当前登录密码" style={{ width: 300 }} />
+          </div>
+        </div>
+        <div className="setting-row">
+          <span className="setting-label">新密码</span>
+          <div className="setting-control">
+            <input className="input" type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} autoComplete="new-password" placeholder="至少 8 位" style={{ width: 300 }} />
+            {newPw.length > 0 && newPw.length < 8 && <span className="setting-hint" style={{ color: "var(--warn)" }}>至少 8 位</span>}
+          </div>
+        </div>
+        <div className="setting-row">
+          <span className="setting-label">确认新密码</span>
+          <div className="setting-control">
+            <input className="input" type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} autoComplete="new-password" placeholder="再次输入新密码" style={{ width: 300 }} />
+            {confirmPw.length > 0 && confirmPw !== newPw && <span className="setting-hint" style={{ color: "var(--warn)" }}>两次输入不一致</span>}
+          </div>
+        </div>
+        <div className="setting-row">
+          <span className="setting-label"></span>
+          <div className="setting-control">
+            <button className="btn btn-primary btn-sm" onClick={submit} disabled={!canSubmit}>{saving ? "保存中…" : "保存"}</button>
+            {msg && <span className="muted" style={{ fontSize: 11.5, marginLeft: 8, color: msgType === "ok" ? "var(--ok)" : "var(--warn)" }}>{msg}</span>}
+          </div>
+        </div>
       </div>
     </div>
   );
