@@ -89,3 +89,10 @@ Thumbs.db
 backend/reg/provider_stats.json
 backend/reg/tokens/
 
+# playwright MCP artifacts
+.playwright-mcp/
+
+# ui test screenshots (before/after comparison)
+before-*.png
+after-*.png
+
