@@ -31,6 +31,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from api.auth import (
+    router as auth_router,
+    init_store as init_auth_store,
+    apply_auth,
+    is_authenticated,
+)
 from api.chain import router as chain_router
 from api.config import router as config_router
 from api.proxy import router as proxy_router
@@ -42,6 +48,7 @@ from api.register import router as register_router
 from api.mail_pool import router as mail_pool_router
 from api.pipeline import router as pipeline_router
 from api.deps import runtime
+from core.auth_store import AuthStore
 from core.config import settings
 from core.orchestrator import AsyncChainOrchestrator, ConnectionManager
 from core.proxy_pool import proxy_pool
@@ -67,6 +74,24 @@ def _split_tags(raw):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ---- 启动 ----
+    # 0. 登入认证: 首次启动产生随机密码并印到 stderr, 后续从 auth.json 读取
+    #    密码以 PBKDF2-HMAC-SHA256 杂凑存储, 明文不落盘; 面板可在「密钥与凭据」修改
+    try:
+        _auth_path = _HERE / "auth.json"
+        _auth_store = AuthStore(_auth_path)
+        _new_pw = _auth_store.ensure_ready()
+        if _new_pw:
+            _box = "=" * 60
+            print(f"\n{_box}", file=sys.stderr)
+            print("[min-implant] 首次启动: 已产生随机登录密码", file=sys.stderr)
+            print(_box, file=sys.stderr)
+            print(f"登录密码: {_new_pw}", file=sys.stderr)
+            print(f"{_box}\n", file=sys.stderr)
+            print("[min-implant] 密码仅本次显示, 已杂凑写入 backend/auth.json")
+            print("[min-implant] 可在面板「系统 → 密钥与凭据」修改密码")
+        init_auth_store(_auth_store)
+    except Exception as _e:
+        print(f"[min-implant] 认证初始化失败: {_e}")
     # 1. Token 存储
     await token_store.init()
     await token_store.reset_running()
@@ -194,7 +219,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 登入认证中间件 (保护 /api/* 与 /ws, 豁免首页/静态/health/auth 入口)
+# 顺序: CORS 在外层 (先处理 preflight), 认证在内层
+apply_auth(app)
+
 # 挂载 REST 路由
+app.include_router(auth_router)
 app.include_router(tokens_router)
 app.include_router(chain_router)
 app.include_router(proxy_router)
@@ -244,6 +274,11 @@ async def index():
 # =============================================================================
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    # 登入认证: 未登录的 WS 连接直接拒绝 (close 4401)
+    # HTTP middleware 不拦截 WebSocket, 故在端点内自行校验 cookie
+    if not is_authenticated(ws):
+        await ws.close(code=4401)
+        return
     await ws.accept()
     conn_mgr = runtime.conn_mgr
     if not conn_mgr:

@@ -1,8 +1,10 @@
+import { useEffect } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useTheme } from "./hooks/useTheme";
 import { useStore } from "./store/useStore";
 import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/layout/Sidebar";
+import { LoginView } from "./views/LoginView";
 import { OverviewView } from "./views/OverviewView";
 import { ChainsView } from "./views/ChainsView";
 import { LogsView } from "./views/LogsView";
@@ -29,6 +31,38 @@ export default function App() {
   useWebSocket();
   useTheme();
   const view = useStore((s) => s.currentView);
+  const authState = useStore((s) => s.authState);
+  const checkAuth = useStore((s) => s.checkAuth);
+
+  // 启动时检查登录态
+  useEffect(() => {
+    void checkAuth();
+  }, [checkAuth]);
+
+  // 未登录 → 登录页
+  if (authState === "unauthenticated") {
+    return <LoginView />;
+  }
+
+  // 检查中 → 全屏加载
+  if (authState === "checking") {
+    return (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--bg-app)",
+          color: "var(--text-3)",
+          fontSize: 13,
+        }}
+      >
+        正在连接…
+      </div>
+    );
+  }
 
   return (
     <div className="window">

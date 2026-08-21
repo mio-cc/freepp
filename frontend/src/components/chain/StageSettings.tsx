@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { STAGE_ORDER, STAGE_SHORT, STAGE_CN, OAICS_STAGE_ORDER, OAICS_STAGE_SHORT, OAICS_STAGE_CN, BRANCH_CN } from "../../types";
 import type { StageName, BranchName, StageCfg, BranchCfg, OaicsStageName, OaicsBranchCfg } from "../../types";
+import { CheckIcon, LockIcon } from "../icons";
 
 /* ==========================================================================
    提链链路页共享组件: 国家下拉单选(auto+搜索) / 分支开关 / 段配置行 / 七段面板
@@ -89,7 +90,7 @@ export function CountrySelect({
         >
           {sel === AUTO ? autoLabel : display.label}
         </span>
-        <span style={{ opacity: 0.6, fontSize: 10 }}>{disabled ? "🔒" : open ? "▲" : "▼"}</span>
+        <span style={{ opacity: 0.6, fontSize: 10 }}>{disabled ? "·" : open ? "▲" : "▼"}</span>
       </button>
       {open && !disabled && (
         <div
@@ -153,7 +154,7 @@ export function CountrySelect({
               >
                 <input type="radio" checked={sel === c} onChange={() => choose(c)} />
                 <span>{flag(c)} {c}</span>
-                {q && <span className="muted" style={{ fontSize: 10 }}>✓ 匹配</span>}
+                {q && <span className="muted" style={{ fontSize: 10 }}><CheckIcon /> 匹配</span>}
               </label>
             ))}
             {filtered.length === 0 && (
@@ -431,7 +432,7 @@ export function StageSettingsPanel({
             onClick={() => setTab("oaics")}
             style={tab === "oaics" ? { background: "var(--oaics)", borderColor: "var(--oaics)" } : { color: "var(--oaics)" }}
           >
-            OAICS 五段 (custom 纯 HTTP) 🔒
+            OAICS 五段 (custom 纯 HTTP) <LockIcon />
           </button>
         </div>
         {tab === "cs" ? (
@@ -510,9 +511,9 @@ function OaicsStages({
     <>
       <div className="card-body" style={{ borderTop: "1px solid var(--border-faint)" }}>
         <div className="section-head">
-          <span className="section-title">OAICS 出口五段 🔒 只读</span>
+          <span className="section-title">OAICS 出口五段 <LockIcon /> 只读</span>
           <span className="muted" style={{ fontSize: 11.5 }}>
-            oaics_ 会话 ✓ 五段 · 跟随七段配置 (下方为映射结果, 不可编辑)
+            oaics_ 会话 <CheckIcon /> 五段 · 跟随七段配置 (下方为映射结果, 不可编辑)
           </span>
         </div>
         <div

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store/useStore";
 import type { LogEntry } from "../types";
+import { SatelliteIcon } from "../components/icons";
 
 const TAG_MAP: Record<LogEntry["level"], string> = {
   ok: "OK",
@@ -98,7 +99,7 @@ export function LogsView() {
         <div className="log-body" ref={streamRef} style={{ maxHeight: "calc(100vh - 220px)" }}>
           {display.length === 0 ? (
             <div className="empty">
-              <div className="empty-icon">📡</div>
+              <div className="empty-icon"><SatelliteIcon /></div>
               <div className="empty-title">暂无日志</div>
               <div className="empty-hint">链路启动后日志将实时显示在这里</div>
             </div>

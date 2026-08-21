@@ -29,8 +29,8 @@ body,
 
 body {
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--mi-fs-md);
+  line-height: var(--mi-lh-normal);
   color: var(--text-1);
   background: var(--bg-base);
   -webkit-font-smoothing: antialiased;
@@ -57,7 +57,7 @@ a:hover {
 
 h1, h2, h3, h4 {
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--mi-ls-normal);
 }
 
 code, pre, kbd {
@@ -135,7 +135,7 @@ code, pre, kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: var(--mi-fs-base);
   font-weight: 600;
 }
 
@@ -157,7 +157,7 @@ code, pre, kbd {
 
 .titlebar-name {
   color: var(--text-1);
-  letter-spacing: 0.01em;
+  letter-spacing: var(--mi-ls-wide);
 }
 
 .titlebar-sep {
@@ -192,7 +192,7 @@ code, pre, kbd {
   background: var(--bg-card);
   border: 1px solid var(--border);
   color: var(--text-2);
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   font-weight: 500;
 }
 .titlebar-traffic {
@@ -220,7 +220,7 @@ code, pre, kbd {
   background: var(--bg-card);
   border: 1px solid var(--border);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   font-variant-numeric: tabular-nums;
 }
 .traffic-popover-head {
@@ -236,7 +236,7 @@ code, pre, kbd {
   border: 1px solid var(--border);
   border-radius: var(--r-full);
   padding: 2px 8px;
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   color: var(--text-2);
   cursor: pointer;
 }
@@ -271,7 +271,7 @@ code, pre, kbd {
   background: none;
   border: none;
   color: var(--text-3, var(--text-2));
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   cursor: pointer;
   padding: 0 2px;
   opacity: 0.55;
@@ -332,7 +332,7 @@ code, pre, kbd {
   border-radius: var(--r-sm);
   background: var(--bg-card);
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--mi-fs-md);
   line-height: 1;
   cursor: pointer;
   transition: background var(--mi-dur-fast) var(--mi-ease),
@@ -352,8 +352,11 @@ code, pre, kbd {
   display: flex;
   flex-direction: column;
   padding: 14px 10px 12px;
-  background: var(--bg-panel);
-  border-right: 1px solid var(--border);
+  background: var(--mi-alias-glass-bg);
+  backdrop-filter: var(--mi-alias-glass-blur);
+  -webkit-backdrop-filter: var(--mi-alias-glass-blur);
+  border-right: 1px solid var(--mi-alias-glass-border);
+  box-shadow: var(--mi-alias-glass-highlight);
   overflow-y: auto;
   /* 折叠宽度过渡 (对齐 AppFrame grid tracks 做法) */
   transition: width var(--mi-dur-slow) var(--mi-ease);
@@ -405,9 +408,9 @@ code, pre, kbd {
 }
 
 .brand-text {
-  font-size: 13.5px;
+  font-size: var(--mi-fs-lg);
   font-weight: 650;
-  letter-spacing: 0.02em;
+  letter-spacing: var(--mi-ls-wider);
   color: var(--text-1);
 }
 
@@ -417,7 +420,7 @@ code, pre, kbd {
 
 .sidebar-label {
   padding: 10px 10px 5px;
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -433,7 +436,7 @@ code, pre, kbd {
   border-radius: var(--r-md);
   color: var(--text-2);
   cursor: pointer;
-  font-size: 12.8px;
+  font-size: var(--mi-fs-md);
   font-weight: 500;
   transition: background 0.12s, color 0.12s;
   position: relative;
@@ -483,7 +486,7 @@ code, pre, kbd {
   border-radius: var(--r-full);
   background: var(--bg-active);
   color: var(--text-3);
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   font-weight: 600;
   text-align: center;
 }
@@ -514,7 +517,7 @@ code, pre, kbd {
 
 .ss-label {
   display: block;
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   color: var(--text-3);
 }
 
@@ -522,7 +525,7 @@ code, pre, kbd {
   display: block;
   margin-top: 1px;
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: var(--mi-fs-xl);
   font-weight: 600;
   color: var(--text-1);
 }
@@ -633,7 +636,7 @@ code, pre, kbd {
   gap: 10px;
   margin-top: 14px;
   flex-wrap: wrap;
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-3);
 }
 
@@ -677,9 +680,9 @@ code, pre, kbd {
 }
 
 .page-title {
-  font-size: 20px;
+  font-size: var(--mi-fs-3xl);
   font-weight: 650;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--mi-ls-tight);
   /* 窄屏时禁止中文逐字竖排 */
   white-space: nowrap;
 }
@@ -687,7 +690,7 @@ code, pre, kbd {
 .page-sub {
   margin-top: 3px;
   color: var(--text-3);
-  font-size: 12.5px;
+  font-size: var(--mi-fs-base);
 }
 
 .page-actions {
@@ -711,19 +714,32 @@ code, pre, kbd {
 }
 
 .section-title {
-  font-size: 12px;
+  font-size: var(--mi-fs-base);
   font-weight: 650;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--mi-ls-caps);
   text-transform: uppercase;
   color: var(--text-3);
 }
 
 /* ── 7. 卡片 ──────────────────────────────────────────────────── */
 .card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--mi-alias-glass-bg-strong);
+  backdrop-filter: var(--mi-alias-glass-blur);
+  -webkit-backdrop-filter: var(--mi-alias-glass-blur);
+  border: 1px solid var(--mi-alias-glass-border);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--mi-alias-glass-shadow);
+  transition: box-shadow var(--mi-dur) var(--mi-ease), transform var(--mi-dur) var(--mi-ease);
+}
+
+.card:hover {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.card.is-static:hover,
+.card-body > .card:hover,
+.stat-card > .card:hover {
+  box-shadow: var(--mi-alias-glass-shadow);
 }
 
 .card-head {
@@ -736,7 +752,7 @@ code, pre, kbd {
 }
 
 .card-title {
-  font-size: 13px;
+  font-size: var(--mi-fs-md);
   font-weight: 600;
 }
 
@@ -750,7 +766,7 @@ code, pre, kbd {
 
 .card-hint {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--mi-fs-base);
 }
 
 /* 网格 */
@@ -786,18 +802,22 @@ code, pre, kbd {
 /* ── 8. 统计卡 KPI ────────────────────────────────────────────── */
 .stat-card {
   padding: 16px 18px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--mi-alias-glass-bg-strong);
+  backdrop-filter: var(--mi-alias-glass-blur);
+  -webkit-backdrop-filter: var(--mi-alias-glass-blur);
+  border: 1px solid var(--mi-alias-glass-border);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s;
+  box-shadow: var(--mi-alias-glass-shadow);
+  transition: border-color var(--mi-dur) var(--mi-ease),
+              box-shadow var(--mi-dur) var(--mi-ease);
 }
 .stat-card:hover {
   border-color: var(--border-strong);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.14), 0 4px 10px rgba(0, 0, 0, 0.06);
 }
 
 .stat-label {
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   font-weight: 500;
   color: var(--text-3);
   display: flex;
@@ -808,17 +828,17 @@ code, pre, kbd {
 .stat-value {
   margin-top: 7px;
   font-family: var(--font-mono);
-  font-size: 26px;
+  font-size: var(--mi-fs-4xl);
   font-weight: 650;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
+  letter-spacing: var(--mi-ls-tight);
+  line-height: var(--mi-lh-tight);
   font-variant-numeric: tabular-nums;
   color: var(--text-1);
 }
 
 .stat-foot {
   margin-top: 8px;
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-3);
   display: flex;
   align-items: center;
@@ -831,7 +851,7 @@ code, pre, kbd {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border-faint);
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-2);
 }
 .stat-sub b {
@@ -851,7 +871,7 @@ code, pre, kbd {
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text-1);
-  font-size: 12.5px;
+  font-size: var(--mi-fs-base);
   font-weight: 550;
   font-family: var(--font-sans);
   cursor: pointer;
@@ -952,7 +972,7 @@ code, pre, kbd {
   border-radius: 10px;
   background: rgba(59, 102, 217, 0.10);
   color: var(--accent-strong);
-  font-size: 13px;
+  font-size: var(--mi-fs-md);
   font-weight: 600;
   backdrop-filter: blur(2px);
   animation: fadeIn 0.2s ease both;
@@ -975,13 +995,13 @@ code, pre, kbd {
 
 .btn-sm {
   padding: 4px 11px;
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   border-radius: var(--r-btn);
 }
 
 .btn-lg {
   padding: 9px 20px;
-  font-size: 13.5px;
+  font-size: var(--mi-fs-lg);
   border-radius: var(--r-btn);
 }
 
@@ -989,6 +1009,16 @@ code, pre, kbd {
   opacity: 0.45;
   cursor: not-allowed;
   filter: none;
+}
+
+/* 键盘导航焦点光环（无障碍） */
+.btn:focus-visible,
+.icon-btn:focus-visible,
+.select:focus-visible,
+.textarea:focus-visible,
+.nav-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent-glow);
 }
 
 /* ── 10. 表单 ─────────────────────────────────────────────────── */
@@ -1001,7 +1031,7 @@ code, pre, kbd {
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text-1);
-  font-size: 12.5px;
+  font-size: var(--mi-fs-base);
   font-family: var(--font-sans);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -1014,7 +1044,7 @@ code, pre, kbd {
 .textarea:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  box-shadow: 0 0 0 3px var(--accent-glow), 0 0 16px var(--mi-alias-glow-brand);
 }
 .input:hover:not(:focus),
 .select:hover:not(:focus),
@@ -1026,8 +1056,8 @@ code, pre, kbd {
   min-height: 90px;
   resize: vertical;
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--mi-fs-base);
+  line-height: var(--mi-lh-relaxed);
 }
 
 .select {
@@ -1046,13 +1076,13 @@ code, pre, kbd {
 }
 
 .field-label {
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   font-weight: 600;
   color: var(--text-2);
 }
 
 .field-hint {
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-3);
 }
 
@@ -1111,7 +1141,7 @@ code, pre, kbd {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--mi-fs-base);
   color: var(--text-2);
   -webkit-user-select: none;
   user-select: none;
@@ -1130,9 +1160,9 @@ code, pre, kbd {
   gap: 5px;
   padding: 2.5px 9px;
   border-radius: var(--r-full);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: var(--mi-ls-wide);
   white-space: nowrap;
 }
 .badge-success {
@@ -1167,9 +1197,9 @@ code, pre, kbd {
   gap: 5px;
   padding: 2.5px 9px;
   border-radius: var(--r-full);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: var(--mi-ls-wider);
   background: var(--info-dim, rgba(49, 130, 246, 0.12));
   color: var(--info);
   white-space: nowrap;
@@ -1187,7 +1217,7 @@ code, pre, kbd {
   border-radius: var(--r-sm);
   background: var(--bg-active);
   color: var(--text-2);
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   font-weight: 500;
   font-family: var(--font-mono);
 }
@@ -1204,15 +1234,15 @@ code, pre, kbd {
 table.table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--mi-fs-base);
 }
 
 .table thead th {
   padding: 10px 14px;
   text-align: left;
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   font-weight: 650;
-  letter-spacing: 0.09em;
+  letter-spacing: var(--mi-ls-caps-wide);
   text-transform: uppercase;
   color: var(--text-3);
   background: var(--bg-raised);
@@ -1265,7 +1295,7 @@ table.table {
 
 .table .mono {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
 }
 
 .table .cell-strong {
@@ -1275,7 +1305,7 @@ table.table {
 
 .table .cell-sub {
   display: block;
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   color: var(--text-3);
   font-family: var(--font-mono);
 }
@@ -1293,7 +1323,7 @@ table.table {
 .tab {
   padding: 5px 14px;
   border-radius: var(--r-sm);
-  font-size: 12px;
+  font-size: var(--mi-fs-base);
   font-weight: 550;
   color: var(--text-3);
   cursor: pointer;
@@ -1413,7 +1443,7 @@ table.table {
 .chain-email {
   flex: 1;
   min-width: 0;
-  font-size: 12.8px;
+  font-size: var(--mi-fs-md);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1422,7 +1452,7 @@ table.table {
 
 .chain-meta {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   color: var(--text-3);
   display: flex;
   gap: 8px;
@@ -1440,7 +1470,7 @@ table.table {
   background: var(--bg-raised);
   border: 1px solid var(--border-faint);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   color: var(--text-2);
   word-break: break-all;
   max-height: 46px;
@@ -1474,7 +1504,7 @@ table.table {
   gap: 4px;
   padding: 3px 6px;
   display: inline-flex;
-  font-size: 10px;
+  font-size: var(--mi-fs-2xs);
   border-radius: 999px;
   white-space: nowrap;
 }
@@ -1488,7 +1518,7 @@ table.table {
 }
 
 .stage-name {
-  font-size: 9.5px;
+  font-size: var(--mi-fs-2xs);
   font-weight: 600;
   color: var(--text-3);
   white-space: nowrap;
@@ -1496,7 +1526,7 @@ table.table {
 
 .stage-try {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--mi-fs-2xs);
   color: var(--text-3);
 }
 
@@ -1612,19 +1642,19 @@ table.table {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
+  font-size: var(--mi-fs-2xl);
   opacity: 0.75;
   margin-bottom: 2px;
 }
 
 .empty-title {
-  font-size: 13px;
+  font-size: var(--mi-fs-md);
   font-weight: 600;
   color: var(--text-2);
 }
 
 .empty-hint {
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   max-width: 320px;
 }
 
@@ -1651,13 +1681,15 @@ table.table {
 
 /* ── 17. 日志面板 ─────────────────────────────────────────────── */
 .log-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--mi-alias-glass-bg-strong);
+  backdrop-filter: var(--mi-alias-glass-blur);
+  -webkit-backdrop-filter: var(--mi-alias-glass-blur);
+  border: 1px solid var(--mi-alias-glass-border);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--mi-alias-glass-shadow);
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 1.75;
+  font-size: var(--mi-fs-sm);
+  line-height: var(--mi-lh-loose);
   overflow: hidden;
 }
 
@@ -1666,8 +1698,8 @@ table.table {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border-faint);
-  background: var(--bg-raised);
+  border-bottom: 1px solid var(--mi-alias-glass-border);
+  background: var(--mi-alias-glass-bg);
 }
 
 .log-body {
@@ -1689,7 +1721,7 @@ table.table {
 .log-ts {
   color: var(--text-3);
   flex-shrink: 0;
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
 }
 
 .log-msg {
@@ -1711,7 +1743,7 @@ table.table {
 
 .log-line .log-chain {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--mi-fs-2xs);
   color: var(--text-3);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1729,7 +1761,7 @@ table.table {
 .bar-label {
   width: 110px;
   flex-shrink: 0;
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1756,7 +1788,7 @@ table.table {
   flex-shrink: 0;
   text-align: right;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
@@ -1798,12 +1830,12 @@ table.table {
 
 .ring-value {
   font-family: var(--font-mono);
-  font-size: 21px;
+  font-size: var(--mi-fs-2xl);
   font-weight: 650;
 }
 
 .ring-label {
-  font-size: 10px;
+  font-size: var(--mi-fs-2xs);
   color: var(--text-3);
 }
 
@@ -1857,7 +1889,7 @@ table.table {
 }
 
 .sheet-title {
-  font-size: 15px;
+  font-size: var(--mi-fs-xl);
   font-weight: 650;
 }
 
@@ -1884,7 +1916,7 @@ table.table {
   color: var(--text-3);
   cursor: pointer;
   transition: background 0.13s, color 0.13s;
-  font-size: 15px;
+  font-size: var(--mi-fs-xl);
   line-height: 1;
 }
 .icon-btn:hover {
@@ -1926,7 +1958,7 @@ table.table {
 .copy-icon {
   opacity: 0;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   transition: opacity 0.13s;
   flex-shrink: 0;
 }
@@ -1954,8 +1986,8 @@ table.table {
   gap: 10px;
   padding: 10px 14px;
   border-radius: var(--r-md);
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: var(--mi-fs-base);
+  line-height: var(--mi-lh-normal);
 }
 .alert-warn {
   background: var(--warn-soft);
@@ -1992,7 +2024,7 @@ table.table {
   border-bottom: none;
 }
 .setting-label {
-  font-size: 12px;
+  font-size: var(--mi-fs-base);
   font-weight: 550;
   color: var(--text-2);
   flex-shrink: 0;
@@ -2012,7 +2044,7 @@ table.table {
 
 /* 国家联动配置 */
 .setting-hint {
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
@@ -2091,7 +2123,7 @@ table.table {
   border-radius: var(--r-sm);
   background: var(--accent-dim);
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   font-weight: 650;
   display: flex;
   align-items: center;
@@ -2102,11 +2134,11 @@ table.table {
   min-width: 0;
 }
 .patch-name {
-  font-size: 12.8px;
+  font-size: var(--mi-fs-md);
   font-weight: 600;
 }
 .patch-desc {
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-3);
   margin-top: 1px;
 }
@@ -2121,7 +2153,7 @@ table.table {
 }
 .btn-row .muted {
   margin-left: 4px;
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
 }
 
 /* 分页 */
@@ -2134,7 +2166,7 @@ table.table {
   flex-wrap: wrap;
 }
 .page-info {
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-3);
 }
 .page-controls {
@@ -2148,7 +2180,7 @@ table.table {
   border: 1px solid var(--border-strong);
   background: var(--bg-raised);
   color: var(--text-2);
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   cursor: pointer;
   font-family: var(--font-sans);
   transition: background 0.13s, color 0.13s;
@@ -2170,7 +2202,7 @@ table.table {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-3);
 }
 
@@ -2188,7 +2220,7 @@ table.table {
   gap: 7px;
 }
 .inline-field label {
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-3);
   font-weight: 550;
 }
@@ -2204,7 +2236,7 @@ table.table {
   gap: 8px;
   flex-wrap: wrap;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-faint);
 }
@@ -2237,7 +2269,7 @@ table.table {
   padding: 10px 14px;
 }
 .detail-cell .dc-label {
-  font-size: 10px;
+  font-size: var(--mi-fs-2xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -2245,7 +2277,7 @@ table.table {
 }
 .detail-cell .dc-value {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--mi-fs-md);
   margin-top: 2px;
 }
 
@@ -2303,7 +2335,7 @@ table.table {
 .bi-label {
   width: 90px;
   flex-shrink: 0;
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-2);
   font-family: var(--font-mono);
   overflow: hidden;
@@ -2335,7 +2367,7 @@ table.table {
   width: 44px;
   text-align: right;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
@@ -2347,7 +2379,7 @@ table.table {
 }
 .sm-table {
   border-collapse: collapse;
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   width: 100%;
 }
 .sm-table th,
@@ -2357,7 +2389,7 @@ table.table {
   border-bottom: 1px solid var(--border-faint);
 }
 .sm-table thead th {
-  font-size: 10px;
+  font-size: var(--mi-fs-2xs);
   color: var(--text-3);
   font-weight: 600;
 }
@@ -2365,7 +2397,7 @@ table.table {
   text-align: left;
   font-weight: 550;
   color: var(--text-1);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
 }
 .sm-cell-ok {
   color: var(--ok);
@@ -2399,7 +2431,7 @@ table.table {
   border-radius: var(--r-md);
 }
 .mini-card-label {
-  font-size: 10px;
+  font-size: var(--mi-fs-2xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -2408,13 +2440,13 @@ table.table {
 .mini-card-value {
   margin-top: 5px;
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: var(--mi-fs-base);
   word-break: break-all;
   color: var(--text-1);
 }
 .mini-card-desc {
   margin-top: 5px;
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   color: var(--text-3);
 }
 
@@ -2432,7 +2464,7 @@ table.table {
   border-radius: var(--r-sm);
   background: var(--bg-active);
   border: 1px solid var(--border-faint);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   font-family: var(--font-mono);
 }
 .country-tag-blocked {
@@ -2448,7 +2480,7 @@ table.table {
   border-radius: var(--r-md);
   background: var(--bg-raised);
   border: 1px solid var(--border-faint);
-  font-size: 12px;
+  font-size: var(--mi-fs-base);
   color: var(--text-2);
   line-height: 1.7;
 }
@@ -2457,7 +2489,7 @@ table.table {
   background: var(--accent-dim);
   padding: 1px 5px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
 }
 
 /* 分析网格 */
@@ -2485,7 +2517,7 @@ table.table {
   gap: 4px;
   padding: 10px 14px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   max-height: 300px;
   overflow-y: auto;
 }
@@ -2524,7 +2556,7 @@ table.table {
   gap: 10px;
   padding: 5px 8px;
   border-radius: var(--r-sm);
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
   transition: background 0.1s;
 }
 .mini-chain:hover {
@@ -2533,7 +2565,7 @@ table.table {
 .mini-chain .mc-id {
   font-family: var(--font-mono);
   color: var(--text-3);
-  font-size: 10.5px;
+  font-size: var(--mi-fs-xs);
   width: 62px;
   flex-shrink: 0;
 }
@@ -2590,7 +2622,7 @@ table.table {
   background: var(--accent);
 }
 .ba-progress-label {
-  font-size: 9.5px;
+  font-size: var(--mi-fs-2xs);
   color: var(--text-3);
   white-space: nowrap;
 }
@@ -2612,7 +2644,7 @@ table.table {
   gap: 12px;
   padding: 7px 0;
   border-bottom: 1px solid var(--border-faint);
-  font-size: 12px;
+  font-size: var(--mi-fs-base);
 }
 .detail-row:last-child {
   border-bottom: none;
@@ -2621,7 +2653,7 @@ table.table {
   width: 96px;
   flex-shrink: 0;
   color: var(--text-3);
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
 }
 .detail-row .dr-value {
   flex: 1;
@@ -2629,7 +2661,7 @@ table.table {
   word-break: break-all;
   color: var(--text-1);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--mi-fs-sm);
 }
 .detail-row .dr-error {
   color: var(--danger);
@@ -2653,7 +2685,7 @@ table.table {
   right: 0;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 10px;
+  font-size: var(--mi-fs-2xs);
   color: var(--text-3);
   opacity: 0.5;
   transition: opacity 0.12s, color 0.12s;
@@ -2689,7 +2721,7 @@ table.table {
   padding: 3px 9px;
   border: 1px solid var(--border);
   border-radius: 7px;
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   background: var(--bg-raised);
   white-space: nowrap;
   flex-shrink: 0;
@@ -2715,7 +2747,7 @@ table.table {
   gap: 8px;
   padding: 3px 6px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--mi-fs-base);
 }
 .feed-row:hover {
   background: var(--bg-hover);
@@ -2723,14 +2755,14 @@ table.table {
 .feed-ts {
   color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   min-width: 64px;
   flex-shrink: 0;
 }
 .feed-token {
   color: var(--text-2);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   min-width: 96px;
   flex-shrink: 0;
 }
@@ -2743,7 +2775,7 @@ table.table {
 }
 .feed-empty {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--mi-fs-base);
   padding: 14px 6px;
 }
 
@@ -2817,10 +2849,22 @@ table.table {
 .range-dual-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--mi-fs-sm);
   color: var(--text-2);
   margin-top: 2px;
 }
 .range-dual-val {
   font-family: var(--font-mono, monospace);
+}
+
+/* ── 玻璃拟态 view 切换动画（m0227 加入）────────────────────────── */
+@keyframes viewFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.view-fade-in {
+  animation: viewFadeIn var(--mi-dur-slow) var(--mi-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .view-fade-in { animation: none; }
 }

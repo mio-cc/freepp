@@ -9,6 +9,7 @@ export function useWebSocket() {
   const handleEvent = useStore((s) => s.handleEvent);
   const setWsStatus = useStore((s) => s.setWsStatus);
   const pushLog = useStore((s) => s.pushLog);
+  const authState = useStore((s) => s.authState);
 
   useEffect(() => {
     let mounted = true;
@@ -47,7 +48,10 @@ export function useWebSocket() {
         ws.onclose = () => {
           setWsStatus("offline");
           wsRef.current = null;
-          if (mounted) scheduleReconnect();
+          // 仅在已登录时重连; 未登录时 WS 会被服务端 4401 拒绝, 避免空转重连
+          if (mounted && useStore.getState().authState === "authenticated") {
+            scheduleReconnect();
+          }
         };
       } catch {
         setWsStatus("error");
@@ -63,9 +67,7 @@ export function useWebSocket() {
       }, RECONNECT_INTERVAL);
     };
 
-    connect();
-
-    return () => {
+    const cleanup = () => {
       mounted = false;
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current);
@@ -77,5 +79,14 @@ export function useWebSocket() {
         wsRef.current = null;
       }
     };
-  }, [handleEvent, setWsStatus, pushLog]);
+
+    // 仅在已登录时建立 WS 连接; 未登录/检查中不连接, 避免被 4401 拒绝后空转重连
+    if (authState === "authenticated") {
+      connect();
+    } else {
+      setWsStatus("offline");
+    }
+
+    return cleanup;
+  }, [handleEvent, setWsStatus, pushLog, authState]);
 }

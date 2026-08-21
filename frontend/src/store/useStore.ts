@@ -5,9 +5,12 @@ import type {
   BAFeedItem, BABaSnap, BAAuthRecord, Traffic,
 } from "../types";
 import { STAGE_ORDER, baStepCn } from "../types";
+import { api, setUnauthorizedHandler } from "../api/client";
 
 const LOG_MAX = 1000;
 const BA_FEED_MAX = 300;
+
+type AuthState = "checking" | "authenticated" | "unauthenticated";
 
 interface StoreState {
   /* ── 导航 ── */
@@ -25,6 +28,15 @@ interface StoreState {
   /* ── 连接 ── */
   wsStatus: "online" | "offline" | "connecting" | "error";
   setWsStatus: (s: StoreState["wsStatus"]) => void;
+
+  /* ── 登入认证 ── */
+  authState: AuthState;
+  authError: string;
+  authLoading: boolean;
+  checkAuth: () => Promise<void>;
+  login: (password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
+  setAuthError: (e: string) => void;
 
   /* ── 数据 ── */
   tokens: Token[];
@@ -91,6 +103,36 @@ export const useStore = create<StoreState>((set, get) => ({
 
   wsStatus: "offline",
   setWsStatus: (s) => set({ wsStatus: s }),
+
+  /* ── 登入认证 ── */
+  authState: "checking",
+  authError: "",
+  authLoading: false,
+  checkAuth: async () => {
+    try {
+      await api("/api/auth/me", "GET");
+      set({ authState: "authenticated", authError: "" });
+    } catch {
+      set({ authState: "unauthenticated" });
+    }
+  },
+  login: async (password: string) => {
+    set({ authLoading: true, authError: "" });
+    try {
+      await api("/api/auth/login", "POST", { password });
+      set({ authState: "authenticated", authLoading: false, authError: "" });
+      return true;
+    } catch (e: any) {
+      const msg = e?.message || "登录失败";
+      set({ authLoading: false, authError: msg });
+      return false;
+    }
+  },
+  logout: async () => {
+    try { await api("/api/auth/logout", "POST"); } catch { /* ignore */ }
+    set({ authState: "unauthenticated", authError: "" });
+  },
+  setAuthError: (e) => set({ authError: e }),
 
   tokens: [],
   nodes: [],
@@ -526,3 +568,8 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setSampleTab: (t) => set({ sampleTab: t }),
 }));
+
+// 模块加载即注册 401 处理器: 任意 API 收到 401 → 切回未登录态 (LoginView 将显示)
+setUnauthorizedHandler(() => {
+  useStore.setState({ authState: "unauthenticated" });
+});

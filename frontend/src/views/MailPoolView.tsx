@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { Mailbox, MailPoolData, MailPoolRules, MailPoolStats, ImapPreset, AliasMode } from "../types";
+import { CheckIcon, XIcon } from "../components/icons";
 
 const EMPTY_MBOX: Omit<Mailbox, "id" | "created_at" | "status" | "last_check" | "last_error" | "used_count"> = {
   label: "",
@@ -86,7 +87,7 @@ export function MailPoolView() {
     setBusy(id);
     try {
       const r = await api<{ ok: boolean; status: string; last_error: string }>(`/api/mail_pool/${id}/test`, "POST");
-      setMsg(r.ok ? "连接成功 ✓" : `连接失败: ${r.last_error || ""}`);
+      setMsg(r.ok ? "连接成功" : `连接失败: ${r.last_error || ""}`);
       await loadAll();
     } catch (e: any) { setMsg("测试失败: " + (e?.message || e)); }
     finally { setBusy(null); }
@@ -345,7 +346,7 @@ export function MailPoolView() {
           <div className="sheet">
             <div className="sheet-head">
               <h3 className="sheet-title">{editingId ? "编辑邮箱" : "添加邮箱"}</h3>
-              <button className="btn btn-sm btn-ghost" onClick={() => setEditing(null)}>✕</button>
+              <button className="btn btn-sm btn-ghost" onClick={() => setEditing(null)}><XIcon /></button>
             </div>
             <div className="sheet-body">
               {/* 预设主机（可增删, 不再硬编码） */}
@@ -358,7 +359,7 @@ export function MailPoolView() {
                   {data?.presets.map((p) => (
                     <span key={p.label} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
                       <button className="btn btn-sm" disabled={!p.imap_host} onClick={() => applyPreset(p)}>{p.label}</button>
-                      <button className="btn btn-sm btn-ghost" type="button" title="删除预设" style={{ fontSize: 11, padding: "2px 6px" }} onClick={() => delPreset(p.label)}>✕</button>
+                      <button className="btn btn-sm btn-ghost" type="button" title="删除预设" style={{ fontSize: 11, padding: "2px 6px" }} onClick={() => delPreset(p.label)}><XIcon /></button>
                     </span>
                   ))}
                 </div>

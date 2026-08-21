@@ -1,7 +1,26 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useStore } from "../../store/useStore";
 import { MAX_CHAIN_CONCURRENCY } from "../../types";
 import { api } from "../../api/client";
+import { MoonIcon } from "../icons";
+
+// 主题切换图标 (亮/跟随系统两个 SVG 内联, MoonIcon 复用集中库)
+function SunIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="3" />
+      <path d="M8 1.5v1.5M8 13v1.5M1.5 8h1.5M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" />
+    </svg>
+  );
+}
+function DesktopIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1.5" y="2.5" width="13" height="8.5" rx="1" />
+      <path d="M5 14h6M6.5 11v3M9.5 11v3" />
+    </svg>
+  );
+}
 
 // 字节自适应格式化: B → KB → MB → GB
 function formatBytes(n: number): string {
@@ -56,8 +75,8 @@ export function TitleBar() {
     const next = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
     setTheme(next);
   };
-  const themeIcon =
-    theme === "dark" ? "🌙" : theme === "light" ? "☀️" : "🖥️";
+  const themeIcon: ReactNode =
+    theme === "dark" ? <MoonIcon /> : theme === "light" ? <SunIcon /> : <DesktopIcon />;
   const themeTitle =
     theme === "dark" ? "暗色 (点击切换跟随系统)" : theme === "light" ? "亮色 (点击切换暗色)" : "跟随系统 (点击切换亮色)";
 

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "../api/client";
 import { useStore } from "../store/useStore";
 import type { StageName, StageCfg, BranchName, BranchCfg } from "../types";
+import { RefreshIcon, StarIcon, PrayIcon } from "../components/icons";
 
 /* ==========================================================================
    类型定义
@@ -190,7 +191,7 @@ export function SettingsView() {
         </div>
         <div className="card">
           <div className="empty">
-            <div className="empty-icon">🔄</div>
+            <div className="empty-icon"><RefreshIcon /></div>
             <div className="empty-title">加载中…</div>
           </div>
         </div>
@@ -258,10 +259,10 @@ export function SettingsView() {
           color: "var(--text-2)",
         }}
       >
-        <span style={{ fontSize: 20, lineHeight: 1 }}>⭐</span>
+        <span style={{ fontSize: 20, lineHeight: 1 }}><StarIcon /></span>
         <span style={{ flex: 1 }}>
           <span style={{ fontWeight: 600, color: "var(--text-1)" }}>项目已开源</span>
-          — 如果你觉得这个项目帮到了你，欢迎去 GitHub 点个 Star 支持一下，顺手 Fork 收藏也感谢 🙏
+          — 如果你觉得这个项目帮到了你，欢迎去 GitHub 点个 Star 支持一下，顺手 Fork 收藏也感谢 <PrayIcon />
         </span>
         <a
           href="https://github.com/mio-cc/freepp"
@@ -281,7 +282,7 @@ export function SettingsView() {
             whiteSpace: "nowrap",
           }}
         >
-          ⭐ github.com/mio-cc/freepp
+          <StarIcon /> github.com/mio-cc/freepp
         </a>
       </div>
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { PipelineConfig, PipelineStatus } from "../types";
+import { CheckIcon, XIcon, WarnIcon } from "../components/icons";
 
 const DEFAULT_CONFIG: PipelineConfig = {
   enabled: false,
@@ -186,7 +187,7 @@ export function PipelineView() {
 
       {lastError && (
         <div className="card" style={{ marginBottom: 16, padding: "10px 16px", borderColor: "var(--danger)" }}>
-          <span style={{ color: "var(--danger)", fontSize: 13 }}>⚠ 守护错误: {lastError}</span>
+          <span style={{ color: "var(--danger)", fontSize: 13 }}><WarnIcon /> 守护错误: {lastError}</span>
         </div>
       )}
 
@@ -196,8 +197,8 @@ export function PipelineView() {
           <span className="card-title">守护配置</span>
           <span className="setting-hint" data-save-state={configSaveState === "idle" ? undefined : configSaveState}>
             {configSaveState === "saving" && "保存中…"}
-            {configSaveState === "saved" && "已保存 ✓"}
-            {configSaveState === "error" && "保存失败 ✕"}
+            {configSaveState === "saved" && "已保存"}
+            {configSaveState === "error" && "保存失败"}
           </span>
         </div>
         <div className="card-body">

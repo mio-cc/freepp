@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useStore } from "../store/useStore";
 import { api } from "../api/client";
 import type { RegEvent, RegAccount, RegStatus, PipelineConfig } from "../types";
+import { CheckIcon, XIcon, MailIcon } from "../components/icons";
 
 // 渠道元信息 (name/label/hint) 由后端 /api/register/channels 动态返回,
 // 前端不再硬编码固定列表 — 开源用户自建/启停渠道后下拉自动同步。
@@ -14,7 +15,7 @@ interface EmailChannel {
 function channelLabel(channels: EmailChannel[], c: string): string {
   const ch = channels.find((m) => m.name === c);
   if (ch) return ch.label;
-  if (c.startsWith("imap:")) return `📧 ${c.slice(5)} (IMAP)`;
+  if (c.startsWith("imap:")) return `<MailIcon /> ${c.slice(5)} (IMAP)`;
   if (c.startsWith("api798")) return "api798 卡密邮箱";
   return c;
 }
@@ -99,7 +100,7 @@ function DetailCopyRow({ label, value, k, copied, onCopy }: {
       <span className="dr-label">{label}</span>
       <span className="dr-value mono dr-clip">
         {empty ? "—" : maskSecret(value)}
-        {!empty && <span className={`dr-copy-badge${copied ? " show" : ""}`}>{copied ? "✓ 已复制" : "⧉"}</span>}
+        {!empty && <span className={`dr-copy-badge${copied ? " show" : ""}`}>{copied ? "已复制" : "⧉"}</span>}
       </span>
     </div>
   );
@@ -373,8 +374,8 @@ export function RegisterView() {
   const successRate = stats && stats.total > 0 ? ((stats.active / stats.total) * 100).toFixed(0) : "—";
   const visibleEvents = events.filter((ev) => {
     if (logLevel === "all") return true;
-    if (logLevel === "err") return ev.type === "error" || (ev.type === "log" && /(失败|错误|error|fail|✗)/i.test(ev.message || ""));
-    if (logLevel === "ok") return ev.type === "complete" || ev.type === "progress" || (ev.type === "log" && /(成功|✓|OK|ok=)/i.test(ev.message || ""));
+    if (logLevel === "err") return ev.type === "error" || (ev.type === "log" && /(失败|错误|error|fail)/i.test(ev.message || ""));
+    if (logLevel === "ok") return ev.type === "complete" || ev.type === "progress" || (ev.type === "log" && /(成功|OK|ok=)/i.test(ev.message || ""));
     return true;
   });
 

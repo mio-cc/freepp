@@ -3,6 +3,7 @@ import { useStore } from "../store/useStore";
 import { api } from "../api/client";
 import { BRANCH_CN } from "../types";
 import type { Token, BranchName } from "../types";
+import { CheckIcon, XIcon, FileIcon, BoltIcon, InboxIcon } from "../components/icons";
 
 /* ==========================================================================
    Token 库 — 库存邮箱 + 提链启动入口
@@ -329,7 +330,7 @@ export function TokensView() {
 
   const promoBadge = (promo: string | undefined) => {
     if (!promo) return null;
-    if (promo === "yes") return { label: "优惠✓", cls: "badge-success" };
+    if (promo === "yes") return { label: "优惠", cls: "badge-success" };
     if (promo === "no") return { label: "无优惠", cls: "badge-muted" };
     return { label: promo.slice(0, 14), cls: "badge-warn" };
   };
@@ -620,7 +621,7 @@ function collectTokens(o: any, out: CalibItem[]) {
             <option value="">全部标签</option>
             {tagOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
-                {opt.value}{opt.preset ? " ⚡" : ""}
+                {opt.value}{opt.preset ? " <BoltIcon />" : ""}
               </option>
             ))}
           </select>
@@ -630,7 +631,7 @@ function collectTokens(o: any, out: CalibItem[]) {
               onClick={() => setTagFilter("")}
               title="清除标签筛选"
             >
-              清除✕
+              清除<XIcon />
             </button>
           )}
           <button className="btn" onClick={handleRefresh} disabled={busy}>
@@ -774,7 +775,7 @@ function collectTokens(o: any, out: CalibItem[]) {
           />
           {dragging && (
             <div className="dropzone-hint">
-              <span style={{ fontSize: 18 }}>📥</span> 松开鼠标导入文件…
+              <span style={{ fontSize: 18 }}><InboxIcon /></span> 松开鼠标导入文件…
             </div>
           )}
         </div>
@@ -810,7 +811,7 @@ function collectTokens(o: any, out: CalibItem[]) {
               {calib.items.slice(0, 6).map((it, i) => (
                 <div key={i} className="mono" style={{ fontSize: 11, display: "flex", gap: 8 }}>
                   <span style={{ color: it.ok ? "var(--ok)" : "var(--danger)" }}>
-                    {it.ok ? "✓" : "✗"}
+                    {it.ok ? "<CheckIcon />" : "<XIcon />"}
                   </span>
                   <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {it.ok ? (it.email || "-") : it.err}
@@ -833,7 +834,7 @@ function collectTokens(o: any, out: CalibItem[]) {
             {busy ? "导入中…" : "导入"}
           </button>
           <button className="btn" onClick={() => fileInputRef.current?.click()} disabled={busy || reading}>
-            {reading ? "读取中…" : "📄 选择文件"}
+            {reading ? "读取中…" : "选择文件"}
           </button>
           <button className="btn" onClick={() => dirInputRef.current?.click()} disabled={busy || reading}>
             选择文件夹
@@ -939,7 +940,7 @@ function collectTokens(o: any, out: CalibItem[]) {
                       </span>
                       {pbadge && <span className={`badge ${pbadge.cls}`} title="促销资格探测 (update 注入 promo)">{pbadge.label}</span>}
                       {terr && <span className={`badge ${terr.cls}`} title="checkout 返回的 token 状态">{terr.label}</span>}
-                      {paypal && <span className="tag" title="init 显示 paypal 渠道可用">paypal✓</span>}
+                      {paypal && <span className="tag" title="init 显示 paypal 渠道可用">paypal<CheckIcon /></span>}
                     </div>
                   </td>
                   <td>

@@ -8,6 +8,13 @@ export class ApiError extends Error {
   }
 }
 
+// 401 回调: 由 store 注册, 触发后跳登录页
+let _onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(fn: (() => void) | null) {
+  _onUnauthorized = fn;
+}
+
 export async function api<T = any>(
   path: string,
   method: string = "GET",
@@ -16,11 +23,17 @@ export async function api<T = any>(
   const opts: RequestInit = {
     method,
     headers: { "Content-Type": "application/json" },
+    // 跨域或同域都需要带 cookie (会话 token 在 httponly cookie 中)
+    credentials: "same-origin",
   };
   if (body) opts.body = JSON.stringify(body);
   const r = await fetch(path, opts);
   const text = await r.text();
   if (!r.ok) {
+    // 401: 触发登出态, 跳登录页
+    if (r.status === 401 && _onUnauthorized) {
+      _onUnauthorized();
+    }
     // 优先透出后端 JSON 错误信息, 否则给可读的状态码错误
     let detail = "";
     try {

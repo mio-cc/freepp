@@ -53,6 +53,7 @@ backend/config.yaml
 backend/ba_config.json
 backend/ba_queue.json
 backend/secrets.json
+backend/auth.json
 backend/email_domains.json
 backend/pipeline_config.json
 backend/mail_pool.json
@@ -87,4 +88,11 @@ Thumbs.db
 # reg: runtime stats
 backend/reg/provider_stats.json
 backend/reg/tokens/
+
+# playwright MCP artifacts
+.playwright-mcp/
+
+# ui test screenshots (before/after comparison)
+before-*.png
+after-*.png
 
