@@ -352,8 +352,11 @@ code, pre, kbd {
   display: flex;
   flex-direction: column;
   padding: 14px 10px 12px;
-  background: var(--bg-panel);
-  border-right: 1px solid var(--border);
+  background: var(--mi-alias-glass-bg);
+  backdrop-filter: var(--mi-alias-glass-blur);
+  -webkit-backdrop-filter: var(--mi-alias-glass-blur);
+  border-right: 1px solid var(--mi-alias-glass-border);
+  box-shadow: var(--mi-alias-glass-highlight);
   overflow-y: auto;
   /* 折叠宽度过渡 (对齐 AppFrame grid tracks 做法) */
   transition: width var(--mi-dur-slow) var(--mi-ease);
@@ -720,10 +723,23 @@ code, pre, kbd {
 
 /* ── 7. 卡片 ──────────────────────────────────────────────────── */
 .card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--mi-alias-glass-bg-strong);
+  backdrop-filter: var(--mi-alias-glass-blur);
+  -webkit-backdrop-filter: var(--mi-alias-glass-blur);
+  border: 1px solid var(--mi-alias-glass-border);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--mi-alias-glass-shadow);
+  transition: box-shadow var(--mi-dur) var(--mi-ease), transform var(--mi-dur) var(--mi-ease);
+}
+
+.card:hover {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.card.is-static:hover,
+.card-body > .card:hover,
+.stat-card > .card:hover {
+  box-shadow: var(--mi-alias-glass-shadow);
 }
 
 .card-head {
@@ -786,14 +802,18 @@ code, pre, kbd {
 /* ── 8. 统计卡 KPI ────────────────────────────────────────────── */
 .stat-card {
   padding: 16px 18px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--mi-alias-glass-bg-strong);
+  backdrop-filter: var(--mi-alias-glass-blur);
+  -webkit-backdrop-filter: var(--mi-alias-glass-blur);
+  border: 1px solid var(--mi-alias-glass-border);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s;
+  box-shadow: var(--mi-alias-glass-shadow);
+  transition: border-color var(--mi-dur) var(--mi-ease),
+              box-shadow var(--mi-dur) var(--mi-ease);
 }
 .stat-card:hover {
   border-color: var(--border-strong);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.14), 0 4px 10px rgba(0, 0, 0, 0.06);
 }
 
 .stat-label {
@@ -991,6 +1011,16 @@ code, pre, kbd {
   filter: none;
 }
 
+/* 键盘导航焦点光环（无障碍） */
+.btn:focus-visible,
+.icon-btn:focus-visible,
+.select:focus-visible,
+.textarea:focus-visible,
+.nav-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent-glow);
+}
+
 /* ── 10. 表单 ─────────────────────────────────────────────────── */
 .input,
 .select,
@@ -1014,7 +1044,7 @@ code, pre, kbd {
 .textarea:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  box-shadow: 0 0 0 3px var(--accent-glow), 0 0 16px var(--mi-alias-glow-brand);
 }
 .input:hover:not(:focus),
 .select:hover:not(:focus),
@@ -1651,10 +1681,12 @@ table.table {
 
 /* ── 17. 日志面板 ─────────────────────────────────────────────── */
 .log-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: var(--mi-alias-glass-bg-strong);
+  backdrop-filter: var(--mi-alias-glass-blur);
+  -webkit-backdrop-filter: var(--mi-alias-glass-blur);
+  border: 1px solid var(--mi-alias-glass-border);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--mi-alias-glass-shadow);
   font-family: var(--font-mono);
   font-size: 11.5px;
   line-height: 1.75;
@@ -1666,8 +1698,8 @@ table.table {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border-faint);
-  background: var(--bg-raised);
+  border-bottom: 1px solid var(--mi-alias-glass-border);
+  background: var(--mi-alias-glass-bg);
 }
 
 .log-body {
@@ -2823,4 +2855,16 @@ table.table {
 }
 .range-dual-val {
   font-family: var(--font-mono, monospace);
+}
+
+/* ── 玻璃拟态 view 切换动画（m0227 加入）────────────────────────── */
+@keyframes viewFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.view-fade-in {
+  animation: viewFadeIn var(--mi-dur-slow) var(--mi-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .view-fade-in { animation: none; }
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
+import { CheckIcon, XIcon } from "../components/icons";
 
 /* ==========================================================================
    直卡支付 — 绑卡 + 免税地址 + 订阅
@@ -81,8 +82,8 @@ export function DirectPayView() {
           clearInterval(timer);
           setResult(
             rec.status === "success"
-              ? `✅ 完成 — 短链: ${rec.short_link}`
-              : `❌ 失败 (${rec.step}): ${rec.error}`
+              ? `<CheckIcon /> 完成 — 短链: ${rec.short_link}`
+              : `<XIcon /> 失败 (${rec.step}): ${rec.error}`
           );
         }
       }

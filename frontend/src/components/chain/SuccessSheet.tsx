@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { CheckIcon, XIcon } from "../icons";
 
 interface Props {
   url: string;
@@ -40,8 +41,8 @@ export function SuccessSheet({ url, meta, onClose }: Props) {
     <div className="overlay" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
-          <span className="badge badge-success">✓ 提链成功</span>
-          <button className="icon-btn" onClick={onClose} aria-label="关闭">✕</button>
+          <span className="badge badge-success"><CheckIcon /> 提链成功</span>
+          <button className="icon-btn" onClick={onClose} aria-label="关闭"><XIcon /></button>
         </div>
         <div className="sheet-body">
           <p className="muted" style={{ marginBottom: 10 }}>
@@ -50,7 +51,7 @@ export function SuccessSheet({ url, meta, onClose }: Props) {
           <textarea className="textarea" readOnly value={url} rows={3} />
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button className="btn btn-primary" onClick={copyUrl}>
-              {copied ? "✓ 已复制" : "复制 URL"}
+              {copied ? "<CheckIcon /> 已复制" : "复制 URL"}
             </button>
             <button className="btn" onClick={() => window.open(url, "_blank")}>
               在浏览器中打开

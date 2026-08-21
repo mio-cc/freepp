@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useStore } from "../store/useStore";
 import { STAGE_ORDER, MAX_CHAIN_CONCURRENCY } from "../types";
+import { SatelliteIcon, HourglassIcon } from "../components/icons";
 
 export function OverviewView() {
   const chainStates = useStore((s) => s.chainStates);
@@ -115,7 +116,7 @@ export function OverviewView() {
           </div>
           {topChains.length === 0 ? (
             <div className="empty">
-              <div className="empty-icon">⏳</div>
+              <div className="empty-icon"><HourglassIcon /></div>
               <div className="empty-title">暂无活跃链路</div>
               <div className="empty-hint">在 Token 库选择令牌后点击「批量启动」开始提链</div>
             </div>
@@ -152,7 +153,7 @@ export function OverviewView() {
           </div>
           {recentLogs.length === 0 ? (
             <div className="empty">
-              <div className="empty-icon">📡</div>
+              <div className="empty-icon"><SatelliteIcon /></div>
               <div className="empty-title">暂无日志</div>
             </div>
           ) : (

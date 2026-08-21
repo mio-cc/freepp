@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useStore } from "../store/useStore";
 import { api } from "../api/client";
 import type { ProxyNode } from "../types";
+import { CheckIcon, XIcon, RefreshIcon } from "../components/icons";
 
 /** 711 代理池状态 (只读禁改) */
 interface Proxy711Status {
@@ -71,7 +72,7 @@ export function ProxyView() {
       const r = await api("/api/proxy/711/smoke", "POST");
       if (r?.result) {
         const healthy = r.result.healthy;
-        setSmokeResult(healthy ? "✓ 链路正常" : "✗ 链路异常");
+        setSmokeResult(healthy ? "<CheckIcon /> 链路正常" : "<XIcon /> 链路异常");
         pushLog(`711 冒烟测试: ${healthy ? "成功" : "失败"}`, healthy ? "ok" : "err");
         await load711();
       } else {
@@ -237,7 +238,7 @@ export function ProxyView() {
             {smokeResult && (
               <span
                 style={{
-                  color: smokeResult.startsWith("✓") ? "var(--ok)" : "var(--danger)",
+                  color: smokeResult.startsWith("<CheckIcon />") ? "var(--ok)" : "var(--danger)",
                   fontSize: 11,
                 }}
               >
@@ -346,7 +347,7 @@ export function ProxyView() {
           </>
         ) : (
           <div className="empty">
-            <div className="empty-icon">🔄</div>
+            <div className="empty-icon"><RefreshIcon /></div>
             <div className="empty-title">加载 711 状态中...</div>
           </div>
         )}

@@ -153,6 +153,15 @@ html {
   --mi-alias-titlebar-bg: rgba(255, 255, 255, 0.72);
   --mi-alias-titlebar-blur: blur(16px);
 
+  /* 玻璃拟态 (Glassmorphism) — 半透明 + 模糊 + 微光边框 + 顶部高光 */
+  --mi-alias-glass-bg:        rgba(255, 255, 255, 0.65);
+  --mi-alias-glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --mi-alias-glass-blur:      blur(20px) saturate(180%);
+  --mi-alias-glass-border:    rgba(255, 255, 255, 0.50);
+  --mi-alias-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.60);
+  --mi-alias-glass-shadow:    0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  --mi-alias-glow-brand:      0 0 40px rgba(59, 102, 217, 0.15), 0 0 80px rgba(59, 102, 217, 0.08);
+
   color-scheme: light;
 }
 
@@ -215,6 +224,15 @@ html[data-theme="dark"] {
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
 
   --mi-alias-titlebar-bg: rgba(20, 20, 24, 0.72);
+
+  /* 玻璃拟态 (暗色) — 更透明 + 更强模糊 + 微光边框 + 顶部高光 */
+  --mi-alias-glass-bg:        rgba(30, 30, 36, 0.55);
+  --mi-alias-glass-bg-strong: rgba(30, 30, 36, 0.72);
+  --mi-alias-glass-blur:      blur(20px) saturate(180%);
+  --mi-alias-glass-border:    rgba(255, 255, 255, 0.08);
+  --mi-alias-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --mi-alias-glass-shadow:    0 8px 32px rgba(0, 0, 0, 0.40), 0 2px 8px rgba(0, 0, 0, 0.30);
+  --mi-alias-glow-brand:      0 0 40px rgba(147, 180, 253, 0.18), 0 0 80px rgba(147, 180, 253, 0.10);
 
   color-scheme: dark;
 }

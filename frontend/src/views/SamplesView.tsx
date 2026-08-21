@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useStore } from "../store/useStore";
 import { api } from "../api/client";
 import type { Sample } from "../types";
+import { WarnIcon, RefreshIcon, FileIcon } from "../components/icons";
 
 function CountryCell({ s }: { s: Sample }) {
   const act = s.actual_country || "";
@@ -9,7 +10,7 @@ function CountryCell({ s }: { s: Sample }) {
   if (act && req && act !== req) {
     return (
       <span className="tag" title={`配置 ${req} → 实际 ${act}${s.exit_ip ? `, 出口 ${s.exit_ip}` : ""}`}>
-        {req}→{act}⚠
+        {req}→{act}<WarnIcon />
       </span>
     );
   }
@@ -133,14 +134,14 @@ export function SamplesView() {
       {!loaded && list.length === 0 ? (
         <div className="card">
           <div className="empty">
-            <div className="empty-icon">🔄</div>
+            <div className="empty-icon"><RefreshIcon /></div>
             <div className="empty-title">加载中…</div>
           </div>
         </div>
       ) : list.length === 0 ? (
         <div className="card">
           <div className="empty">
-            <div className="empty-icon">📄</div>
+            <div className="empty-icon"><FileIcon /></div>
             <div className="empty-title">暂无数据</div>
             {samplesError[sampleTab] && (
               <div className="empty-hint" style={{ color: "var(--danger)" }}>

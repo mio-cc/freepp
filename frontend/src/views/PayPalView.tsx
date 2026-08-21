@@ -3,6 +3,7 @@ import { useStore } from "../store/useStore";
 import { api } from "../api/client";
 import type { BAAuthRecord, BAAuthConfig, BAStep, SMAQuote, BAFeedItem, BABaSnap } from "../types";
 import { BA_STEPS, baStepCn } from "../types";
+import { CheckIcon, XIcon, WarnIcon, CreditCardIcon, MonkeyIcon } from "../components/icons";
 
 /* ── 授权监控日志类型 (类型定义在 types, store 持有全局实例) ── */
 
@@ -335,7 +336,7 @@ export function PayPalView() {
             if (r.status === "running") {
               items.push({ ts: Date.now(), token: r.ba_token, level: "info", msg: `授权启动 · 步骤 ${baStepCn(r.step)}` });
             } else if (r.status === "success") {
-              items.push({ ts: Date.now(), token: r.ba_token, level: "ok", msg: "授权成功 ✓" });
+              items.push({ ts: Date.now(), token: r.ba_token, level: "ok", msg: "授权成功 <CheckIcon />" });
             } else if (r.status === "failed") {
               items.push({ ts: Date.now(), token: r.ba_token, level: "err", msg: `授权失败: ${r.error || "未知原因"}` });
             } else if (r.status === "pending") {
@@ -582,7 +583,7 @@ export function PayPalView() {
     const targets = baRecords.filter((r) => tokens.includes(r.ba_token));
     if (targets.length === 0) return;
     const runningN = targets.filter((r) => r.status === "running").length;
-    if (!window.confirm(`删除 ${targets.length} 条记录?${runningN > 0 ? `\n⚠ ${runningN} 条正在授权中, 任务仍会继续执行, 仅从队列移除` : ""}`)) return;
+    if (!window.confirm(`删除 ${targets.length} 条记录?${runningN > 0 ? `\n<WarnIcon /> ${runningN} 条正在授权中, 任务仍会继续执行, 仅从队列移除` : ""}`)) return;
     try {
       const res = await api("/api/paypal/ba/delete", "POST", {
         ba_tokens: targets.map((r) => r.ba_token),
@@ -988,7 +989,7 @@ export function PayPalView() {
 
           {filteredRecords.length === 0 ? (
             <div className="empty">
-              <div className="empty-icon">💳</div>
+              <div className="empty-icon"><CreditCardIcon /></div>
               <div className="empty-title">
                 {pendingFromChains.length === 0 && !importText.trim()
                   ? "暂无 BA 记录 — 提链成功后自动导入, 或在上方手动粘贴 BA 链接"
@@ -1138,8 +1139,8 @@ export function PayPalView() {
               data-save-state={configSaveState}
             >
               {configSaveState === "saving" && "保存中…"}
-              {configSaveState === "saved" && "已保存 ✓"}
-              {configSaveState === "error" && "保存失败 ✕"}
+              {configSaveState === "saved" && "已保存 <CheckIcon />"}
+              {configSaveState === "error" && "保存失败 <XIcon />"}
             </span>
           </div>
           <div className="card-body">
@@ -1200,7 +1201,7 @@ export function PayPalView() {
                   title={showApiKey ? "隐藏密钥" : "显示密钥"}
                   style={{ marginLeft: 6 }}
                 >
-                  {showApiKey ? "🙈" : "👁"}
+                  {showApiKey ? "<MonkeyIcon />" : "👁"}
                 </button>
                 <span className="setting-hint">保存在前端 config, 授权时覆盖 .env (仅本次会话)</span>
               </div>
@@ -1547,7 +1548,7 @@ export function PayPalView() {
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-head">
               <span className="sheet-title">BA 授权详情</span>
-              <button className="icon-btn" onClick={() => setDetailRecord(null)} aria-label="关闭">✕</button>
+              <button className="icon-btn" onClick={() => setDetailRecord(null)} aria-label="关闭"><XIcon /></button>
             </div>
             <div className="sheet-body">
               <div className="detail-list">
@@ -1614,7 +1615,7 @@ export function PayPalView() {
                   <span className="dr-label">代理出口实测</span>
                   <span className="dr-value">
                     {detailRecord.geo_country || detailRecord.proxy_country || "—"}
-                    {detailRecord.geo_country && detailRecord.geo_country !== (detailRecord.identity_country || detailRecord.country) ? " ⚠ 不一致" : ""}
+                    {detailRecord.geo_country && detailRecord.geo_country !== (detailRecord.identity_country || detailRecord.country) ? " <WarnIcon /> 不一致" : ""}
                   </span>
                 </div>
                 <div className="detail-row">

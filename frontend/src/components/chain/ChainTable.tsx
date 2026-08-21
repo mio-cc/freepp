@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from "react";
 import { STAGE_ORDER, STAGE_SHORT, STAGE_CN, OAICS_STAGE_CN } from "../../types";
 import type { ChainState, StageName, OaicsStageName } from "../../types";
+import { CheckIcon, XIcon, WarnIcon } from "../icons";
 
 /** OAICS 5 段映射到 7 段列: 不走的段 (init/poll) 为 undefined, 直接跳过 */
 const OAICS_COL_MAP: Record<StageName, OaicsStageName | undefined> = {
@@ -116,7 +117,7 @@ function ChainTableInner({ chainList, onClick }: Props) {
                           style={{ fontSize: 10 }}
                         >
                           {cs.channelDetect.channel}
-                          {cs.channelDetect.present ? " ✓" : " ✗"}
+                          {cs.channelDetect.present ? " <CheckIcon />" : " <XIcon />"}
                         </span>
                       </div>
                     )}
@@ -145,7 +146,7 @@ function ChainTableInner({ chainList, onClick }: Props) {
                     const baseLabel = isOaics && oaicsSrc
                       ? `${OAICS_STAGE_CN[oaicsSrc]} (OAICS)`
                       : `${STAGE_CN[s]}`;
-                    const title = `${baseLabel}${req ? ` · 配置 ${req}` : ""}${drifted ? ` → 真实 ${act} ⚠` : geoTail}`;
+                    const title = `${baseLabel}${req ? ` · 配置 ${req}` : ""}${drifted ? ` → 真实 ${act} <WarnIcon />` : geoTail}`;
                     let cls = "stage-cell chain-cell" + (isOaics ? " oaics" : "") + (drifted ? " drift" : "");
                     let label = "";
                     if (!oaicsSrc && isOaics) {
@@ -153,10 +154,10 @@ function ChainTableInner({ chainList, onClick }: Props) {
                       label = "·";
                     } else if (sd?.state === "ok") {
                       cls += " ok";
-                      label = drifted ? `${sd.country || "✓"}→${act}⚠` : (sd.country || "✓");
+                      label = drifted ? `${sd.country || "<CheckIcon />"}→${act}<WarnIcon />` : (sd.country || "<CheckIcon />");
                     } else if (sd?.state === "fail") {
                       cls += " fail";
-                      label = "✗";
+                      label = "<XIcon />";
                     } else if (sd?.state === "run") {
                       cls += " run";
                       label = `try ${sd.tryN || 1}/${sd.maxTry || 3}`;
@@ -179,10 +180,10 @@ function ChainTableInner({ chainList, onClick }: Props) {
                   </td>
                   <td>
                     {cs.status === "success" ? (
-                      <span className="badge badge-success">✓ 成功</span>
+                      <span className="badge badge-success"><CheckIcon /> 成功</span>
                     ) : cs.status === "failed" ? (
                       <span className="badge badge-danger" title={cs.reasonText || cs.reason || ""}>
-                        ✗ {cs.reasonText || cs.reason || "失败"}
+                        <XIcon /> {cs.reasonText || cs.reason || "失败"}
                       </span>
                     ) : cs.status === "running" ? (
                       <span className="badge badge-info">运行中</span>

@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { STAGE_ORDER, STAGE_SHORT, STAGE_CN } from "../types";
 import { ChainTable } from "../components/chain/ChainTable";
 import { SuccessSheet } from "../components/chain/SuccessSheet";
+import { LinkIcon } from "../components/icons";
 
 interface SheetState {
   url: string;
@@ -85,7 +86,7 @@ export function ChainsView() {
       {chainList.length === 0 ? (
         <div className="card">
           <div className="empty">
-            <div className="empty-icon">🔗</div>
+            <div className="empty-icon"><LinkIcon /></div>
             <div className="empty-title">尚未启动链路</div>
             <div className="empty-hint">到各链路页选择 Token 后启动提链</div>
           </div>

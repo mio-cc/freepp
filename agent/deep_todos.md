@@ -52,3 +52,38 @@
 2. session（11 测试）
 3. auth API（12 测试）
 4. auth middleware + WS（9 测试）
+
+## 2026-08-21 — Web 页面美化（已完成 ✅）
+
+### 任务
+自主叠代升级：先 commit 登录功能，之后美化 web 页面。附带：检查 emoji 换成 SVG。
+
+### 决策摘要
+- 风格：现代玻璃拟态（backdrop-blur + 半透明 + 柔光边框 + 柔阴影 + 品牌光晕）
+- 动效：CSS 微交互（hover/transition/focus + view-fade-in 动画，不引入动画库）
+- emoji：21 种装饰性 emoji 换成 SVG 组件（icons.tsx 集中库），纯箭头保留
+- 亮暗双适配，reduced-motion 已有守护
+
+### 工作项目（全数完成）
+- [x] commit 登录功能（19fc695，25 files +1698/-60）
+- [x] 截图 before 基线
+- [x] tokens.css 加 7 亮 + 7 暗玻璃令牌（glass-bg/glass-bg-strong/glass-blur/glass-border/glass-highlight/glass-shadow/glow-brand）
+- [x] index.css 主面板玻璃：.sidebar / .card / .stat-card / .input:focus 双光环 / .view-fade-in 动画 / .log-panel / .log-toolbar
+- [x] index.css 微交互：.card:hover 阴影加深 / .btn:focus-visible 等键盘光环（无障碍）
+- [x] emoji→SVG 替换：17 个 .tsx 文件，icons.tsx 集中 SVG 组件库
+- [x] TitleBar emoji 遗留修复（SunIcon/DesktopIcon 内联 SVG，themeIcon 真正渲染 JSX）
+- [x] LoginView 玻璃美化：双层径向渐变背景 + 玻璃容器 + 品牌光晕阴影 + view-fade-in + 图标放大 + 副标题
+- [x] build 验证（3 次 build 全通过，52 modules，无型别错误）
+- [x] after 截图对比（登录页 + 主面板亮 + SecretsView 亮 + Overview 暗 + Secrets 暗）
+
+### 验证结果
+- 前端 build：tsc 无型别错误，vite 8.2.0 成功产出 web/dist（CSS 50.07 kB / JS 488.24 kB）
+- 真实浏览器验证：登录页玻璃容器 + 品牌光晕 + 副标题「面板登录」生效；主面板 sidebar/card/stat-card 玻璃生效；SecretsView 改密码 card 在顶部第一個；暗色模式玻璃令牌双适配
+- WS 连接正常（未登录时不空转重连，登录后正常连接）
+- 退出登录按钮在 sidebar 底部生效
+
+### 美化实作不动的区块（已有完善设计）
+- .btn（纯色填充型，玻璃会降低对比度）
+- .empty / .empty-icon（透明容器 / 太小）
+- .skeleton（shimmer 动画，玻璃会破坏）
+- 纯箭头 → ← ↑ ↓（文字符号非装饰）

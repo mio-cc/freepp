@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useStore } from "../store/useStore";
+import { CheckIcon, RefreshIcon } from "../components/icons";
 
 /* ==========================================================================
    密钥与凭据页 — 把分散在 config.yaml / secrets.json / .env / 环境变量的
@@ -121,7 +122,7 @@ export function SecretsView() {
           await api("/api/config/secrets", "POST", { section: sec, fields: secrets[sec] });
         } catch { /* ignore */ }
       }
-      setSavedFlash("已保存 ✓");
+      setSavedFlash("已保存 <CheckIcon />");
       setTimeout(() => setSavedFlash(""), 1500);
     }, 1000);
     return () => { if (saveSecretsTimer.current) clearTimeout(saveSecretsTimer.current); };
@@ -134,7 +135,7 @@ export function SecretsView() {
     saveCfgTimer.current = setTimeout(async () => {
       try {
         await api("/api/config/section", "POST", { section, fields });
-        setSavedFlash("已保存 ✓");
+        setSavedFlash("已保存 <CheckIcon />");
         setTimeout(() => setSavedFlash(""), 1500);
       } catch { /* ignore */ }
     }, 1000);
@@ -655,7 +656,7 @@ function EmailDomainsCard() {
     saveTimer.current = setTimeout(async () => {
       try {
         await api("/api/config/email_domains", "POST", { by_country: nextBy, fallback: nextFallback });
-        setSavedFlash("已保存 ✓");
+        setSavedFlash("已保存 <CheckIcon />");
         setTimeout(() => setSavedFlash(""), 1500);
       } catch { /* ignore */ }
     }, 800);
@@ -679,7 +680,7 @@ function EmailDomainsCard() {
       if (r?.ok) {
         setByCountry(r.by_country || {});
         setFallback(r.fallback || []);
-        setSavedFlash("已重置 ✓");
+        setSavedFlash("已重置 <CheckIcon />");
         setTimeout(() => setSavedFlash(""), 1500);
       }
     } catch { /* ignore */ }
@@ -725,7 +726,7 @@ function EmailDomainsCard() {
             <div className="setting-row">
               <span className="setting-label"></span>
               <div className="setting-control">
-                <button className="btn btn-ghost" onClick={reset} style={{ fontSize: 12.5 }}>↺ 重置为默认</button>
+                <button className="btn btn-ghost" onClick={reset} style={{ fontSize: 12.5 }}><RefreshIcon /> 重置为默认</button>
                 {savedFlash && <span className="muted" style={{ fontSize: 11.5, color: "var(--ok)", marginLeft: 8 }}>{savedFlash}</span>}
               </div>
             </div>

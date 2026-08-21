@@ -37,41 +37,51 @@ export function LoginView() {
         alignItems: "center",
         justifyContent: "center",
         background:
-          "radial-gradient(1100px 460px at 70% -10%, rgba(59, 102, 217, 0.06), transparent 60%), var(--bg-app)",
+          "radial-gradient(900px 540px at 70% -10%, rgba(59, 102, 217, 0.16), transparent 60%), radial-gradient(700px 460px at 18% 110%, rgba(59, 102, 217, 0.10), transparent 55%), var(--bg-app)",
       }}
     >
       <div
-        className="card"
-        style={{ width: "min(380px, 92vw)", padding: 0 }}
+        className="card view-fade-in"
+        style={{
+          width: "min(380px, 92vw)",
+          padding: 0,
+          position: "relative",
+          boxShadow:
+            "var(--mi-alias-glass-shadow), var(--mi-alias-glow-brand)",
+        }}
       >
         <div className="card-head" style={{ justifyContent: "center", borderBottom: "none", paddingBottom: 0 }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
             <div
               style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
+                width: 44,
+                height: 44,
+                borderRadius: 12,
                 background: "var(--accent)",
                 position: "relative",
                 flexShrink: 0,
+                boxShadow: "0 4px 16px rgba(59, 102, 217, 0.35)",
               }}
             >
               <div
                 style={{
                   position: "absolute",
-                  inset: 10,
-                  borderRadius: 5,
+                  inset: 12,
+                  borderRadius: 6,
                   background: "var(--text-invert)",
-                  opacity: 0.9,
+                  opacity: 0.92,
                 }}
               />
             </div>
-            <div style={{ fontSize: 16, fontWeight: 650, letterSpacing: "-0.01em", color: "var(--text-1)" }}>
+            <div style={{ fontSize: 17, fontWeight: 650, letterSpacing: "-0.01em", color: "var(--text-1)" }}>
               Min-Implant v2
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: -4 }}>
+              面板登录
             </div>
           </div>
         </div>
-        <form className="card-body" style={{ padding: "8px 24px 24px" }} onSubmit={handleSubmit}>
+        <form className="card-body" style={{ padding: "12px 26px 26px" }} onSubmit={handleSubmit}>
           <div className="field" style={{ marginBottom: 14 }}>
             <label className="field-label" htmlFor="login-password">
               登录密码
@@ -96,12 +106,13 @@ export function LoginView() {
             <div
               style={{
                 marginBottom: 12,
-                padding: "8px 11px",
+                padding: "9px 12px",
                 borderRadius: "var(--r-sm)",
                 background: "var(--danger-soft)",
                 color: "var(--fg-danger)",
-                fontSize: 12,
+                fontSize: 12.5,
                 lineHeight: 1.5,
+                border: "1px solid rgba(220, 53, 69, 0.18)",
               }}
             >
               {authError}
